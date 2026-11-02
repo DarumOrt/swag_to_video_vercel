@@ -29,6 +29,7 @@ export {
   type SafeAreaMode,
 } from './layout'
 export type { BandReaction, Ctx2D, FrameContext, Layer, LayerSpecBase } from './types'
+export { emptyFrameWords, type FrameWords, type WordBox, type WordPlacement } from './words'
 
 /** Synthetic timeline for dev pages and tests (also used by export). */
 export { createFakeTimeline, type FakeTimelineOptions } from './dev/fakeTimeline'

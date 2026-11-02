@@ -8,6 +8,7 @@ import type { AudioSection, Timeline } from '@/shared'
 import type { CameraTransform } from './effectsHost'
 import type { Layout, PixelRect, RectSpec } from './layout'
 import type { BeatInfo } from './rhythm'
+import type { FrameWords } from './words'
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
@@ -62,6 +63,11 @@ export interface FrameContext {
   /** Spectrum row at a feature-grid position, written into `out` (length = spectrum.binCount). */
   spectrumAt(pos: number, out: Float32Array): void
   rect(spec: RectSpec): PixelRect
+  /**
+   * Lyric words drawn in this frame, in screen pixels (words.ts). Text layers `place()` the words
+   * they draw; effects read them in `overlay` / `post` to aim at a word.
+   */
+  words: FrameWords
 }
 
 export interface Layer {

@@ -244,6 +244,15 @@ export class KineticLayer implements Layer {
       y += (rng() - 0.5) * 2 * s.jitter * unit
       rot = ((rng() - 0.5) * 2 * s.jitterRotate * Math.PI) / 180
     }
+    f.words.place({
+      wordId: pw.word.id,
+      x,
+      y,
+      width: pw.width * o.scale,
+      height: o.px * o.scale,
+      start: pw.word.start,
+      end: pw.word.end,
+    })
     g.translate(x, y)
     if (rot) g.rotate(rot)
     g.scale(o.scale, o.scale)

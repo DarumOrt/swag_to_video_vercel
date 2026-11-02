@@ -78,7 +78,7 @@ interface RowLayout {
   text: string
   width: number
   /** Word spans in row coordinates (0 = row start). */
-  words: { x0: number; x1: number; start: number; end: number }[]
+  words: { id: string; x0: number; x1: number; start: number; end: number }[]
 }
 
 interface LineLayout {
@@ -158,6 +158,17 @@ export class LyricsLayer implements Layer {
         const left = s.align === 'left' ? 0 : s.align === 'right' ? -row.width : -row.width / 2
         g.fillStyle = this.rowFill(g, row, left, t)
         g.fillText(row.text, left, rowY)
+        for (const w of row.words) {
+          f.words.place({
+            wordId: w.id,
+            x: x + (left + (w.x0 + w.x1) / 2) * scale,
+            y: cy + rowY * scale,
+            width: (w.x1 - w.x0) * scale,
+            height: lay.fontPx * scale,
+            start: w.start,
+            end: w.end,
+          })
+        }
       })
       g.restore()
     }
@@ -232,7 +243,7 @@ export function placeWords(
       const before = prefix ? `${prefix} ` : ''
       const x0 = measure(before)
       prefix = before + w.text
-      spans.push({ x0, x1: measure(prefix), start: w.start, end: w.end })
+      spans.push({ id: w.id, x0, x1: measure(prefix), start: w.start, end: w.end })
     }
     return { text, width: measure(text), words: spans }
   })

@@ -27,7 +27,6 @@ export {
   type ParamValue,
   type ParamValues,
 } from './params'
-// Stubs until @/render ships presets and @/effects ships effect schemas.
 export {
   DEFAULT_PRESET_ID,
   STYLE_PRESETS,
@@ -35,8 +34,8 @@ export {
   findPreset,
   presetDefaults,
   type StylePreset,
-} from './style.stub'
-export { ACCENT_EFFECTS, effectInfo, type AccentEffectInfo } from './effects.stub'
+} from './style'
+export { ACCENT_EFFECTS, effectInfo, type AccentEffectInfo } from './effects'
 
 export function createRenderer(): FrameRenderer {
   return new SceneRenderer()

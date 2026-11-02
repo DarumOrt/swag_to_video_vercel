@@ -33,6 +33,8 @@ export interface ParticleOverlay {
   /** Origin in frame fractions (0..1 of width / height). */
   originX: number
   originY: number
+  /** Word the burst belongs to: when it is on screen, the host moves the origin to it. */
+  wordId?: string
   /** Packed [x, y, size, alpha, heading, colorMix] per particle, `count` used. */
   data: Float32Array
   count: number

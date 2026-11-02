@@ -440,6 +440,7 @@ export function burstParticles(c: AccentContext): OverlayItem | null {
     shape: str(p, 'shape') as 'dot' | 'spark' | 'square',
     originX: num(p, 'originX'),
     originY: num(p, 'originY'),
+    wordId: c.word.id,
     data,
     count: live,
     color: str(p, 'color'),

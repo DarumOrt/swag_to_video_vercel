@@ -12,6 +12,7 @@ import {
   type CameraTransform,
   type Effect,
   type EffectFactory,
+  type EffectSpec,
 } from './effectsHost'
 import { embeddedFamiliesIn, loadEmbeddedFonts } from './fonts'
 import { computeLayout, resolveRect, type Layout } from './layout'
@@ -22,8 +23,10 @@ import { beatAt, sectionAt } from './rhythm'
 import { featurePosition, frameTime, sampleSeries, sampleSpectrum } from './sampling'
 import { normalizeScene, type Scene } from './scene'
 import type { Ctx2D, FrameContext, Layer } from './types'
+import { emptyFrameWords, WordCollector, type FrameWords } from './words'
 
 interface LayerEntry {
+  id: string
   layer: Layer
   opacity: number
   blend: GlobalCompositeOperation
@@ -50,12 +53,21 @@ export interface SceneRendererOptions {
   alpha?: boolean
   /** Effect factory override (tests). Default: `createEffect` from `@/effects`. */
   createEffect?: EffectFactory
+  /** Font families an effect draws with (tests). Default: `effectFontFamilies` from `@/effects`. */
+  effectFontFamilies?: EffectFontFamilies
 }
+
+type EffectFontFamilies = (spec: EffectSpec) => string[]
 
 /** `createEffect` from `@/effects` once the effects module exports it; until then no effects. */
 function defaultEffectFactory(): EffectFactory {
   const fn = (effectsModule as { createEffect?: EffectFactory }).createEffect
   return typeof fn === 'function' ? fn : () => null
+}
+
+function defaultEffectFonts(): EffectFontFamilies {
+  const fn = (effectsModule as { effectFontFamilies?: EffectFontFamilies }).effectFontFamilies
+  return typeof fn === 'function' ? fn : () => []
 }
 
 export class SceneRenderer implements FrameRenderer {
@@ -87,11 +99,13 @@ export class SceneRenderer implements FrameRenderer {
     this.timeline = options.timeline
     const scene = normalizeScene(options.scene)
     // Fonts first: a frame drawn before they load would silently use a system font.
-    await loadEmbeddedFonts(embeddedFamiliesIn(sceneFontFamilies(scene)))
+    const effectFonts = this.options.effectFontFamilies ?? defaultEffectFonts()
+    await loadEmbeddedFonts(embeddedFamiliesIn(sceneFontFamilies(scene, effectFonts)))
     this.scene = scene
     this.layers = scene.layers
       .filter((spec) => spec.enabled !== false)
       .map((spec) => ({
+        id: spec.id,
         layer: createLayer(spec),
         opacity: spec.opacity ?? 1,
         blend: spec.blend ?? 'source-over',
@@ -151,9 +165,11 @@ export class SceneRenderer implements FrameRenderer {
 
     // 2. Camera, composed by effects.
     const camera: CameraTransform = { ...IDENTITY_CAMERA }
+    const words = new WordCollector(layout.width, layout.height, layout.unit)
     const base = createFrameContext(timeline, layout, frameIndex, this.fps, {
       time: time === baseTime ? undefined : time,
       camera,
+      words: words.view(),
     })
     for (const { effect, seed } of this.effects) effect.camera?.({ ...base, seed }, camera)
 
@@ -168,7 +184,8 @@ export class SceneRenderer implements FrameRenderer {
       g.globalAlpha = entry.opacity
       g.globalCompositeOperation = entry.blend
       if (entry.camera) applyCamera(g, camera, layout.width, layout.height, layout.unit)
-      entry.layer.draw(g, { ...base, seed: entry.seed })
+      const scoped = words.scope(entry.id, entry.camera ? camera : null)
+      entry.layer.draw(g, { ...base, seed: entry.seed, words: scoped })
       g.restore()
     }
 
@@ -197,8 +214,10 @@ export class SceneRenderer implements FrameRenderer {
   }
 }
 
-function sceneFontFamilies(scene: Scene): string[] {
-  return scene.layers.flatMap((l) => ('fontFamily' in l ? [l.fontFamily] : []))
+/** Font families of the scene's layers and effects (e.g. the accents' full-screen word). */
+export function sceneFontFamilies(scene: Scene, effectFonts: EffectFontFamilies): string[] {
+  const layers = scene.layers.flatMap((l) => ('fontFamily' in l ? [l.fontFamily] : []))
+  return [...layers, ...scene.effects.flatMap((e) => effectFonts(e))]
 }
 
 /** Per-frame context: the only inputs layers and effects may use. */
@@ -207,7 +226,7 @@ export function createFrameContext(
   layout: Layout,
   frameIndex: number,
   fps: number,
-  extra: { time?: number; camera?: Readonly<CameraTransform> } = {},
+  extra: { time?: number; camera?: Readonly<CameraTransform>; words?: FrameWords } = {},
 ): FrameContext {
   const features = timeline.audio.features
   const baseTime = frameTime(frameIndex, fps)
@@ -233,6 +252,7 @@ export function createFrameContext(
     band: (band) => sampleSeries(features.bands[band], pos),
     spectrumAt: (p, out) => sampleSpectrum(features, p, out),
     rect: (spec) => resolveRect(spec, layout),
+    words: extra.words ?? emptyFrameWords(),
     rng(salt = 0) {
       return createRng(hash32(this.seed, frameIndex, salt))
     },

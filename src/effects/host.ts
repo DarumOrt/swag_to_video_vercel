@@ -14,6 +14,7 @@
 import type { Timeline } from '@/shared'
 // TODO(render): import from '@/render' once its index re-exports the effects host types.
 import type { Effect, EffectFactory, EffectSpec } from '@/render/effectsHost'
+import type { FrameContext } from '@/render'
 import { evaluateAccents, prepareAccents, type PreparedAccents } from './evaluate'
 import { drawOverlays } from './overlay'
 import { resolveParams, str, type LocalizedText, type ParamSpec, type ParamValues } from './params'
@@ -21,7 +22,7 @@ import { accentsPass, createPostPass } from './post/passes'
 import { POST_EFFECTS, type PostEffectType } from './post/settings'
 import { EFFECT_STYLE_ORDER, EFFECT_STYLES, type EffectStyleId } from './presets'
 import { applyBeatCamera, BEAT_CAMERA_PARAMS, BEAT_FLASH_PARAMS, beatFlash } from './rhythm'
-import { isNeutralPost, type AccentFrame } from './types'
+import { isNeutralPost, type AccentFrame, type OverlayItem } from './types'
 
 export type EffectType = 'accents' | 'beat-camera' | 'beat-flash' | PostEffectType
 
@@ -187,7 +188,7 @@ function accentsEffect(id: string, params: ParamValues, seed: number): Effect {
     },
     overlay(g, f) {
       const items = at(f.timeline, f.baseTime).overlays
-      if (items.length > 0) drawOverlays(g, items, f.layout, overlay)
+      if (items.length > 0) drawOverlays(g, items.map((item) => atWord(item, f)), f.layout, overlay)
     },
     post: { ...pass, active: (f) => !isNeutralPost(at(f.timeline, f.baseTime).post) },
     dispose() {
@@ -195,6 +196,14 @@ function accentsEffect(id: string, params: ParamValues, seed: number): Effect {
       memo = null
     },
   }
+}
+
+/** Particles start from their word when it is drawn; the origin params are the fallback. */
+function atWord(item: OverlayItem, f: FrameContext): OverlayItem {
+  if (item.kind !== 'particles' || !item.wordId) return item
+  const box = f.words.get(item.wordId)
+  if (!box) return item
+  return { ...item, originX: box.x / f.layout.width, originY: box.y / f.layout.height }
 }
 
 /** Scene effects of a style preset, in application order. Ids are stable (`fx-<type>`). */

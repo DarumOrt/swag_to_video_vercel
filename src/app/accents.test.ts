@@ -1,9 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { flattenWords, parseLyricsText } from '@/lyrics'
 import { createFakeTimeline } from '@/render'
-import type { Lyrics, Timeline } from '@/shared'
+import type { AccentEffectId, Lyrics, Timeline } from '@/shared'
 import { regenerateAccents, removeAccent, setWordAccent, updateAccent } from './accentActions'
-import { STYLE_PRESETS, buildScene, presetDefaults, resolveValues } from './adapters'
+import {
+  ACCENT_EFFECTS,
+  STYLE_PRESETS,
+  buildScene,
+  findPreset,
+  presetDefaults,
+  resolveValues,
+} from './adapters'
 import { useAppStore } from './store'
 
 /** Words every 0.5 s, so some land on the fake timeline's beats. */
@@ -77,33 +84,49 @@ describe('accents', () => {
   })
 })
 
+// Record forces a compile error when AccentEffectId gains or loses a member.
+const ACCENT_EFFECT_IDS = Object.keys({
+  'zoom-punch': 0,
+  shake: 0,
+  glitch: 0,
+  flash: 0,
+  'palette-shift': 0,
+  'particle-burst': 0,
+  'fullscreen-word': 0,
+  'slow-motion': 0,
+  invert: 0,
+} satisfies Record<AccentEffectId, 0>)
+
 describe('style presets', () => {
   it('build valid scenes from their defaults', () => {
+    expect(STYLE_PRESETS.map((p) => p.id)).toEqual(['studio', 'neon', 'minimal', 'grunge'])
     for (const preset of STYLE_PRESETS) {
       const scene = buildScene(preset.id, presetDefaults(preset.id))
-      expect(scene.layers.map((l) => l.type)).toEqual([
-        'background',
-        'spectrum-bars',
-        'text',
-        'lyrics',
-      ])
+      const types = scene.layers.map((l) => l.type)
+      expect(types).toContain('background')
+      expect(types.some((t) => t === 'lyrics' || t === 'kinetic')).toBe(true)
+      expect(scene.effects.length).toBeGreaterThan(0)
     }
   })
 
+  it('lists exactly the shared accent effect ids', () => {
+    expect(ACCENT_EFFECTS.map((e) => e.id).sort()).toEqual([...ACCENT_EFFECT_IDS].sort())
+  })
+
   it('ignores values of the wrong type', () => {
-    const preset = STYLE_PRESETS[0]!
-    const values = resolveValues(preset.params, { vignette: 'much', showBars: false })
-    expect(values.vignette).toBe(presetDefaults(preset.id).vignette)
-    expect(values.showBars).toBe(false)
+    const preset = findPreset('neon')
+    const values = resolveValues(preset.params, { reaction: 'much', oscilloscope: false })
+    expect(values.reaction).toBe(presetDefaults(preset.id).reaction)
+    expect(values.oscilloscope).toBe(false)
   })
 
   it('store keeps one scene object for preview and export', () => {
     const { setPreset, setStyleValue } = useAppStore.getState()
     setPreset('neon')
     const before = useAppStore.getState().scene
-    setStyleValue('vignette', 0.1)
+    setStyleValue('background', '#123456')
     const after = useAppStore.getState().scene
     expect(after).not.toBe(before)
-    expect(after.layers[0]).toMatchObject({ type: 'background', vignette: 0.1 })
+    expect(JSON.stringify(after.layers)).toContain('#123456')
   })
 })
