@@ -10,10 +10,15 @@ export { clearOpfsExports, type SaveTarget } from '@/export'
 export { analyzeTrack, patchTimeline, withLyrics, type AnalysisPhase } from './analysis'
 export {
   MAX_QUALITY_WARNING,
+  clearModelCache,
   estimateDownload,
+  modelCacheInfo,
+  modelStatuses,
   transcribe,
   useFakeRecognizer,
   type DownloadEstimate,
+  type ModelCacheInfo,
+  type ModelStatuses,
   type RecognizeLanguage,
   type RecognizeProgress,
   type TranscribeJob,

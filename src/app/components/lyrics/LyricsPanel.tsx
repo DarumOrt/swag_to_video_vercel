@@ -99,7 +99,7 @@ export function LyricsPanel() {
             onClick={() => (running ? cancelRecognition() : void requestRecognition())}
           >
             <Sparkles aria-hidden />
-            {running ? t.lyrics.cancel : t.lyrics.recognize}
+            {running ? t.lyrics.cancel : recognized ? t.lyrics.recognizeAgain : t.lyrics.recognize}
           </Button>
           <Button size="sm" disabled={!ready || !!tap} onClick={() => setPasteOpen(!pasteOpen)}>
             <ClipboardPaste aria-hidden />

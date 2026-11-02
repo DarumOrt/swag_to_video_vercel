@@ -5,7 +5,10 @@
 import { toMono16k } from '@/audio'
 import type { RecognizedWord } from '@/lyrics'
 import {
+  deleteCachedModels,
   estimateModelDownload,
+  listCachedModels,
+  storageEstimate,
   transcribe as runWhisper,
   type DownloadEstimate,
   type TranscribeQuality,
@@ -41,11 +44,72 @@ export const useFakeRecognizer =
   typeof location !== 'undefined' &&
   new URLSearchParams(location.search).has('fake-asr')
 
-/** What a run would download; null with the fake recognizer (nothing to download). */
+const QUALITIES: readonly TranscribeQuality[] = ['light', 'max']
+
+/** Cache state of one quality variant: `totalBytes` is its size, `toDownloadBytes` what is missing. */
+export type ModelStatuses = Record<TranscribeQuality, DownloadEstimate | null>
+
+export interface ModelCacheInfo {
+  /** Bytes the browser holds for downloaded models (what "clear" frees). */
+  bytes: number
+  files: number
+  /** Browser storage usage/quota, when available. */
+  storage: { usage: number; quota: number } | null
+}
+
+// Fake recognizer: an in-memory "cache" so the prompt and clearing can be tried without a download.
+const FAKE_SIZES: Record<TranscribeQuality, number> = { light: 480 * 2 ** 20, max: 1_500 * 2 ** 20 }
+let fakeCached: Record<TranscribeQuality, boolean> = { light: true, max: false }
+
+function fakeEstimate(quality: TranscribeQuality): DownloadEstimate {
+  const totalBytes = FAKE_SIZES[quality]
+  return {
+    model: 'fake' as DownloadEstimate['model'],
+    device: 'wasm' as DownloadEstimate['device'],
+    note: null,
+    totalBytes,
+    toDownloadBytes: fakeCached[quality] ? 0 : totalBytes,
+  }
+}
+
+/** What a run of this quality would download; null when the estimate failed. */
 export async function estimateDownload(
   quality: TranscribeQuality,
 ): Promise<DownloadEstimate | null> {
-  return useFakeRecognizer ? null : estimateModelDownload(quality)
+  return useFakeRecognizer ? fakeEstimate(quality) : estimateModelDownload(quality)
+}
+
+/** Cache state of every quality variant (a failed estimate gives null for that variant). */
+export async function modelStatuses(): Promise<ModelStatuses> {
+  const [light, max] = await Promise.all(
+    QUALITIES.map((q) => estimateDownload(q).catch(() => null)),
+  )
+  return { light: light ?? null, max: max ?? null }
+}
+
+export async function modelCacheInfo(): Promise<ModelCacheInfo> {
+  if (useFakeRecognizer) {
+    const bytes = QUALITIES.reduce((sum, q) => sum + (fakeCached[q] ? FAKE_SIZES[q] : 0), 0)
+    return { bytes, files: bytes ? 3 : 0, storage: null }
+  }
+  const [repos, storage] = await Promise.all([
+    listCachedModels().catch(() => []),
+    storageEstimate().catch(() => null),
+  ])
+  return {
+    bytes: repos.reduce((sum, repo) => sum + repo.bytes, 0),
+    files: repos.reduce((sum, repo) => sum + repo.files, 0),
+    storage,
+  }
+}
+
+/** Removes all cached model files. Returns the number of files removed. */
+export async function clearModelCache(): Promise<number> {
+  if (useFakeRecognizer) {
+    fakeCached = { light: false, max: false }
+    return 3
+  }
+  return deleteCachedModels()
 }
 
 export async function transcribe(job: TranscribeJob): Promise<RecognizedWord[]> {

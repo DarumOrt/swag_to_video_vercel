@@ -16,7 +16,9 @@ import {
 } from '@/lyrics'
 import type { Lyrics } from '@/shared'
 import {
-  estimateDownload,
+  clearModelCache,
+  modelCacheInfo,
+  modelStatuses,
   transcribe,
   withLyrics,
   type RecognizeLanguage,
@@ -45,6 +47,7 @@ function commitLyrics(lyrics: Lyrics | null, origin?: LyricsOrigin | null) {
   if (!timeline) return
   setTimeline(withLyrics(timeline, lyrics))
   if (origin !== undefined) patch({ origin })
+  if (origin === 'recognized') patch({ edited: false })
 }
 
 function vocalOnsets(): ArrayLike<number> {
@@ -68,47 +71,97 @@ function abortRecognition() {
   recognizeAbort = null
 }
 
+/** Whether starting recognition now would overwrite or re-align work the user already did. */
+export function recognitionNeedsConfirm(): boolean {
+  if (!currentLyrics()) return false
+  const { origin, edited } = useLyricsStore.getState()
+  return origin !== 'recognized' || edited
+}
+
 /**
- * "Распознать": asks about the model download first, unless it is already cached
- * (or the fake recognizer is on), in which case recognition starts right away.
+ * "Распознать" / "Распознать заново": always opens the settings window with the cache state of
+ * each quality variant, even when the model is cached. Recognition starts on the user's click.
  */
 export async function requestRecognition() {
   if (recognizeAbort || useLyricsStore.getState().prompt) return
-  patch({ prompt: { quality: 'light', language: 'auto', estimate: null }, notice: null })
-  const estimate = await estimateDownload('light').catch(() => null)
-  const prompt = useLyricsStore.getState().prompt
-  if (!prompt) return
-  if (!estimate || estimate.toDownloadBytes === 0) {
-    patch({ prompt: null })
-    void recognizeLyrics(prompt.quality, prompt.language)
-  } else {
-    patch({ prompt: { ...prompt, estimate } })
-  }
+  patch({
+    prompt: {
+      quality: 'light',
+      language: 'auto',
+      statuses: null,
+      cacheBytes: null,
+      confirmClear: false,
+      clearing: false,
+      confirmReplace: false,
+    },
+    notice: null,
+  })
+  await refreshModelState()
 }
 
-export async function setRecognizeQuality(quality: TranscribeQuality) {
+/** Re-reads cache state for the open window (after opening and after clearing). */
+async function refreshModelState() {
+  const [statuses, info] = await Promise.all([modelStatuses(), modelCacheInfo().catch(() => null)])
   const prompt = useLyricsStore.getState().prompt
   if (!prompt) return
-  patch({ prompt: { ...prompt, quality, estimate: null } })
-  const estimate = await estimateDownload(quality).catch(() => null)
-  const current = useLyricsStore.getState().prompt
-  if (current?.quality === quality) patch({ prompt: { ...current, estimate } })
+  const cachedEstimate = Math.max(
+    0,
+    ...Object.values(statuses).map((e) => (e ? e.totalBytes - e.toDownloadBytes : 0)),
+  )
+  patch({
+    prompt: {
+      ...prompt,
+      statuses,
+      cacheBytes: info ? Math.max(info.bytes, cachedEstimate) : cachedEstimate,
+    },
+  })
+}
+
+export function setRecognizeQuality(quality: TranscribeQuality) {
+  const prompt = useLyricsStore.getState().prompt
+  if (prompt) patch({ prompt: { ...prompt, quality, confirmReplace: false } })
 }
 
 export function setRecognizeLanguage(language: RecognizeLanguage) {
   const prompt = useLyricsStore.getState().prompt
-  if (prompt) patch({ prompt: { ...prompt, language } })
+  if (prompt) patch({ prompt: { ...prompt, language, confirmReplace: false } })
 }
 
+/** First click asks for confirmation when lyrics would be replaced; the second one starts. */
 export function confirmRecognition() {
   const prompt = useLyricsStore.getState().prompt
-  if (!prompt) return
+  if (!prompt || prompt.clearing || recognizeAbort) return
+  if (recognitionNeedsConfirm() && !prompt.confirmReplace) {
+    patch({ prompt: { ...prompt, confirmReplace: true } })
+    return
+  }
   patch({ prompt: null })
   void recognizeLyrics(prompt.quality, prompt.language)
 }
 
 export function dismissRecognitionPrompt() {
   patch({ prompt: null })
+}
+
+export function askClearModelCache(ask: boolean) {
+  const prompt = useLyricsStore.getState().prompt
+  if (prompt && !prompt.clearing) patch({ prompt: { ...prompt, confirmClear: ask } })
+}
+
+/** Deletes cached model files. Refused while recognition is running (the model is in use). */
+export async function confirmClearModelCache() {
+  const prompt = useLyricsStore.getState().prompt
+  if (!prompt || prompt.clearing || recognizeAbort) return
+  patch({ prompt: { ...prompt, clearing: true } })
+  try {
+    await clearModelCache()
+  } catch (error) {
+    console.error(error)
+    patch({ notice: { kind: 'error', text: t.lyrics.prompt.clearFailed } })
+  }
+  const current = useLyricsStore.getState().prompt
+  if (current) patch({ prompt: { ...current, clearing: false, confirmClear: false } })
+  await refreshModelState()
 }
 
 async function recognizeLyrics(quality: TranscribeQuality, language: RecognizeLanguage) {
@@ -223,7 +276,7 @@ export function exportLrc(): string | null {
 export function clearLyrics() {
   stopTapSync(false)
   commitLyrics(null, null)
-  patch({ selectedWordId: null, alignStats: null, notice: null })
+  patch({ edited: false, selectedWordId: null, alignStats: null, notice: null })
 }
 
 // ---------------------------------------------------------------------------
@@ -236,14 +289,16 @@ export function selectWord(wordId: string | null) {
 
 export function updateWord(wordId: string, change: WordPatch) {
   const lyrics = currentLyrics()
-  if (lyrics) commitLyrics(editWord(lyrics, wordId, change))
+  if (!lyrics) return
+  commitLyrics(editWord(lyrics, wordId, change))
+  patch({ edited: true })
 }
 
 export function removeWord(wordId: string) {
   const lyrics = currentLyrics()
   if (!lyrics) return
   commitLyrics(deleteWord(lyrics, wordId))
-  patch({ selectedWordId: null })
+  patch({ selectedWordId: null, edited: true })
 }
 
 // ---------------------------------------------------------------------------
@@ -296,5 +351,5 @@ export function stopTapSync(apply = true) {
     sources: [...DEFAULT_SNAP.sources, 'tap'],
   })
   commitLyrics(snapped)
-  patch({ notice: { kind: 'info', text: t.lyrics.tapApplied(session.taps.length) } })
+  patch({ edited: true, notice: { kind: 'info', text: t.lyrics.tapApplied(session.taps.length) } })
 }

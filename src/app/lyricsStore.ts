@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { RecognizedWord, TapMode, TapSession } from '@/lyrics'
 import type {
-  DownloadEstimate,
+  ModelStatuses,
   RecognizeLanguage,
   RecognizeProgress,
   TranscribeQuality,
@@ -27,14 +27,23 @@ export interface LyricsEditorState {
     note: string | null
     error: string | null
   }
-  /** Settings shown before recognition when a model download is needed. */
+  /** Settings window shown before every recognition: quality, language, model cache state. */
   prompt: {
     quality: TranscribeQuality
     language: RecognizeLanguage
-    /** null while estimating. */
-    estimate: DownloadEstimate | null
+    /** null while the cache is being checked. */
+    statuses: ModelStatuses | null
+    /** Bytes that "clear the cache" would free; null while unknown. */
+    cacheBytes: number | null
+    /** The user asked to clear the cache and has to confirm. */
+    confirmClear: boolean
+    clearing: boolean
+    /** The result would replace/re-align existing lyrics and has to be confirmed. */
+    confirmReplace: boolean
   } | null
   origin: LyricsOrigin | null
+  /** The user changed recognized words by hand (edit, delete, tap sync). */
+  edited: boolean
   /** Result of the last alignment to recognized words. */
   alignStats: { anchored: number; total: number } | null
   pasteOpen: boolean
@@ -58,6 +67,7 @@ export const INITIAL_LYRICS_EDITOR: LyricsEditorState = {
   recognize: IDLE_RECOGNIZE,
   prompt: null,
   origin: null,
+  edited: false,
   alignStats: null,
   pasteOpen: false,
   selectedWordId: null,
