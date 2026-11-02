@@ -36,6 +36,16 @@ export interface AudioAnalysis {
   rhythm: Rhythm
   /** Regions where vocals are likely present (used to skip instrumental parts in recognition). */
   vocalActivity: TimeRange[]
+  /** Energy sections of the track (intro, build, drop…), ascending, covering the track. Optional (v1.1). */
+  sections?: AudioSection[]
+}
+
+export type SectionKind = 'quiet' | 'build' | 'drop' | 'normal'
+
+export interface AudioSection extends TimeRange {
+  kind: SectionKind
+  /** Mean energy of the section relative to the track, 0..1. */
+  energy: number
 }
 
 /**
@@ -72,6 +82,17 @@ export interface FrameFeatures {
     correlation: Float32Array
     width: Float32Array
   }
+
+  /**
+   * Raw waveform snapshot per frame for oscilloscope / goniometer, row-major frameCount × pointsPerFrame,
+   * values -1..1. Each row covers `windowSec` of audio ending at the frame time. Optional (v1.1).
+   */
+  scope?: {
+    pointsPerFrame: number
+    windowSec: number
+    left: Float32Array
+    right: Float32Array
+  }
 }
 
 export interface Rhythm {
@@ -84,6 +105,8 @@ export interface Rhythm {
   onsets: Float32Array
   /** Onsets in the vocal band only, used to snap word starts. */
   vocalOnsets: Float32Array
+  /** Strength of each beat in `beats` (same length), 0..1 — for picking which beats hit hardest. Optional (v1.1). */
+  beatStrength?: Float32Array
 }
 
 export interface TimeRange {
@@ -138,10 +161,12 @@ export interface LyricWord {
 // Accents (effects bound to words)
 // ---------------------------------------------------------------------------
 
-/** Built-in accent effects. The render session implements them; new ids go through the main session. */
+/** Built-in accent effects. The effects session implements them; new ids go through the main session. */
 export type AccentEffectId =
   | 'zoom-punch'
+  | 'shake'
   | 'glitch'
+  | 'flash'
   | 'palette-shift'
   | 'particle-burst'
   | 'fullscreen-word'
@@ -152,6 +177,8 @@ export interface Accent {
   id: string
   wordId: string
   effect: AccentEffectId
+  /** 'auto' = suggested by the app, 'user' = placed or confirmed by the user. Missing = 'user'. */
+  source?: 'auto' | 'user'
   /** Effect starts this many seconds before the word start (anticipation). */
   preRollSec: number
   /** Effect length in seconds from the word start. */

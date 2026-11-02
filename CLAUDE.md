@@ -68,14 +68,15 @@ WebGL2 / Three.js + GLSL, Canvas 2D · WebCodecs + mediabunny · transformers.js
 обсуждение проекта, архитектурные решения, контракты между модулями, git (commit/push в GitHub),
 ревью и сведение работы тематических сессий.
 
-| Сессия                       | Устав                             | Владеет                                           |
-| ---------------------------- | --------------------------------- | ------------------------------------------------- |
-| Аудио-анализ                 | `docs/sessions/audio-analysis.md` | `src/audio/`                                      |
-| ML и Hugging Face            | `docs/sessions/ml-models.md`      | `src/ml/`, `scripts/models/`, `models.json`       |
-| Текст и тайминги             | `docs/sessions/lyrics-sync.md`    | `src/lyrics/`                                     |
-| Рендер-движок и визуализация | `docs/sessions/render-engine.md`  | `src/render/`, `src/visualizers/`, `src/effects/` |
-| Фронтенд и UI                | `docs/sessions/frontend-ui.md`    | `src/app/`, `src/ui/`, стили                      |
-| Экспорт видео                | `docs/sessions/video-export.md`   | `src/export/`                                     |
+| Сессия                       | Устав                             | Владеет                                     |
+| ---------------------------- | --------------------------------- | ------------------------------------------- |
+| Аудио-анализ                 | `docs/sessions/audio-analysis.md` | `src/audio/`                                |
+| ML и Hugging Face            | `docs/sessions/ml-models.md`      | `src/ml/`, `scripts/models/`, `models.json` |
+| Текст и тайминги             | `docs/sessions/lyrics-sync.md`    | `src/lyrics/`                               |
+| Рендер-движок и визуализация | `docs/sessions/render-engine.md`  | `src/render/`, `src/visualizers/`           |
+| Эффекты и пост-обработка     | `docs/sessions/effects.md`        | `src/effects/`                              |
+| Фронтенд и UI                | `docs/sessions/frontend-ui.md`    | `src/app/`, `src/ui/`, стили                |
+| Экспорт видео                | `docs/sessions/video-export.md`   | `src/export/`                               |
 
 Общие файлы — **`src/shared/`** (типы, схема `timeline.json`), `package.json`, `vite.config.ts`,
 `vercel.json`, `CLAUDE.md`, `docs/` — принадлежат главной сессии.
@@ -96,7 +97,8 @@ WebGL2 / Three.js + GLSL, Canvas 2D · WebCodecs + mediabunny · transformers.js
    `src/<модуль>/dev/*`. Vite отдаёт их в dev-режиме (`http://localhost:<порт>/dev/<модуль>.html`),
    в прод-сборку они не попадают. `src/app/` и `index.html` не трогай.
 8. **Свой порт dev-сервера** (чтобы сессии не мешали друг другу): `npm run dev -- --port <порт> --strictPort`.
-   5173 — главная, 5174 — аудио, 5175 — ML, 5176 — лирика, 5177 — рендер, 5178 — фронт, 5179 — экспорт.
+   5173 — главная, 5174 — аудио, 5175 — ML, 5176 — лирика, 5177 — рендер, 5178 — фронт, 5179 — экспорт,
+   5180 — эффекты.
 9. **Тестовые треки** — в `test-media/` (в `.gitignore`, в репозиторий не попадают). В автотестах
    генерируй синтетический звук (синус, клики, шум), а не реальные треки.
 10. **E2E и бенчмарки в браузере** — Playwright (`playwright.config.ts`): установленный Chrome, видимое окно,
