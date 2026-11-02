@@ -10,6 +10,7 @@
 import type { FrameRate } from '@/shared'
 import { SceneRenderer } from '../SceneRenderer'
 import type { SceneInput } from '../scene'
+import { buildPresetScene } from '../styles/presets'
 import { createFakeTimeline } from './fakeTimeline'
 
 export interface BenchCase {
@@ -28,13 +29,11 @@ export interface BenchResult {
 
 export const DEFAULT_BENCH_CASES: BenchCase[] = [
   { label: 'empty', scene: { layers: [] } },
-  { label: 'background', scene: { layers: [{ id: 'bg', type: 'background' }] } },
-  { label: 'spectrum-bars', scene: { layers: [{ id: 's', type: 'spectrum-bars' }] } },
-  { label: 'title', scene: { layers: [{ id: 't', type: 'text', text: 'Ночной город' }] } },
-  { label: 'lyrics', scene: { layers: [{ id: 'l', type: 'lyrics' }] } },
   { label: 'default scene', scene: null },
-  { label: 'empty, opaque canvas', scene: { layers: [] }, alpha: false },
-  { label: 'default scene, opaque canvas', scene: null, alpha: false },
+  ...(['studio', 'neon', 'minimal', 'grunge'] as const).map((id) => ({
+    label: `preset ${id}`,
+    scene: buildPresetScene(id, { title: 'Ночной город' }),
+  })),
 ]
 
 export async function runFrameCostBench(
@@ -111,4 +110,39 @@ async function createEncoder(width: number, height: number, fps: number): Promis
     }
   }
   throw new Error('No supported video encoder config')
+}
+
+/**
+ * Preview cost: renderFrame on a visible-size GPU canvas, timed per frame with a forced GPU flush
+ * every frame (1×1 readback from a separate canvas would demote it, so we read from the canvas
+ * through a tiny drawImage). Returns ms per frame for each case.
+ */
+export async function runPreviewBench(
+  options: { width?: number; height?: number; frames?: number; cases?: BenchCase[] } = {},
+): Promise<{ label: string; ms: number; fps: number }[]> {
+  const width = options.width ?? 1080
+  const height = options.height ?? 1920
+  const frames = options.frames ?? 240
+  const timeline = createFakeTimeline({ durationSec: 180 })
+  const probe = new OffscreenCanvas(1, 1)
+  const probeCtx = probe.getContext('2d', { willReadFrequently: true })
+  const out: { label: string; ms: number; fps: number }[] = []
+  for (const c of options.cases ?? DEFAULT_BENCH_CASES) {
+    const canvas = new OffscreenCanvas(width, height)
+    const renderer = new SceneRenderer()
+    await renderer.init({ canvas, width, height, fps: 60, timeline, scene: c.scene })
+    const first = 60 * 60
+    const t0 = performance.now()
+    for (let i = 0; i < frames; i++) {
+      renderer.renderFrame(first + i)
+      // Wait for the GPU: copy one pixel out (the frame canvas itself stays on the GPU).
+      probeCtx?.drawImage(canvas, 0, 0, 1, 1)
+      probeCtx?.getImageData(0, 0, 1, 1)
+    }
+    const ms = (performance.now() - t0) / frames
+    renderer.dispose()
+    out.push({ label: c.label, ms, fps: 1000 / ms })
+    console.log(`[render preview] ${c.label}: ${ms.toFixed(2)} ms/frame`)
+  }
+  return out
 }

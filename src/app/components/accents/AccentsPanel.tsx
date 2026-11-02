@@ -1,8 +1,8 @@
 import { Play, RefreshCw, Trash2, WandSparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import { flattenWords } from '@/lyrics'
+import { flattenWords, type AccentStyle } from '@/lyrics'
 import type { Accent, AccentEffectId, LyricWord } from '@/shared'
-import { Button, Select, Slider, cn } from '@/ui'
+import { Button, Segmented, Select, Slider, cn, type SegmentedOption } from '@/ui'
 import { previewAccent, regenerateAccents, removeAccent, updateAccent } from '../../accentActions'
 import { ACCENT_EFFECTS, effectInfo } from '../../adapters'
 import { formatTime } from '../../format'
@@ -13,10 +13,18 @@ import { EFFECT_ICONS } from './effectIcons'
 
 const EFFECT_OPTIONS = ACCENT_EFFECTS.map((effect) => ({ value: effect.id, label: effect.name }))
 
+const STYLE_OPTIONS: SegmentedOption<AccentStyle>[] = [
+  { value: 'minimal', label: t.accents.styles.minimal },
+  { value: 'balanced', label: t.accents.styles.balanced },
+  { value: 'aggressive', label: t.accents.styles.aggressive },
+]
+
 export function AccentsPanel() {
   const timeline = useAppStore((state) => state.timeline)
   const locked = useAppStore((state) => state.export.status === 'running')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Keyed by word: editing turns an auto accent into a user one with a new id.
+  const [selectedWordId, setSelectedWordId] = useState<string | null>(null)
+  const [style, setStyle] = useState<AccentStyle>('balanced')
   const lyrics = timeline?.lyrics ?? null
   const accents = useMemo(() => timeline?.accents ?? [], [timeline])
   const words = useMemo(
@@ -29,10 +37,17 @@ export function AccentsPanel() {
   return (
     <div className="flex flex-col gap-4 px-4 py-4">
       <div className="flex flex-col gap-2">
+        <Segmented
+          label={t.accents.style}
+          value={style}
+          options={STYLE_OPTIONS}
+          onChange={setStyle}
+          disabled={!hasTimedWords || locked}
+        />
         <Button
           variant={accents.length ? 'secondary' : 'primary'}
           disabled={!hasTimedWords || locked}
-          onClick={regenerateAccents}
+          onClick={() => regenerateAccents(style)}
         >
           {accents.length ? <RefreshCw aria-hidden /> : <WandSparkles aria-hidden />}
           {accents.length ? t.accents.regenerate : t.accents.suggest}
@@ -52,13 +67,13 @@ export function AccentsPanel() {
         <ul className="-mx-2 flex flex-col gap-0.5" aria-label={t.accents.list}>
           {accents.map((accent) => (
             <AccentRow
-              key={accent.id}
+              key={accent.wordId}
               accent={accent}
               word={words.get(accent.wordId) ?? null}
-              selected={accent.id === selectedId}
+              selected={accent.wordId === selectedWordId}
               disabled={locked}
               onSelect={() => {
-                setSelectedId(accent.id === selectedId ? null : accent.id)
+                setSelectedWordId(accent.wordId === selectedWordId ? null : accent.wordId)
                 previewAccent(accent)
               }}
             />
@@ -115,7 +130,7 @@ function AccentRow({
           aria-label={t.accents.remove}
           title={t.accents.remove}
           disabled={disabled}
-          onClick={() => removeAccent(accent.id)}
+          onClick={() => removeAccent(accent.wordId)}
         >
           <Trash2 />
         </Button>
@@ -127,13 +142,13 @@ function AccentRow({
             value={accent.effect}
             options={EFFECT_OPTIONS}
             disabled={disabled}
-            onChange={(effect: AccentEffectId) => updateAccent(accent.id, { effect })}
+            onChange={(effect: AccentEffectId) => updateAccent(accent.wordId, { effect })}
           />
           <Slider
             label={t.accents.intensity}
             value={accent.intensity}
             disabled={disabled}
-            onChange={(intensity) => updateAccent(accent.id, { intensity })}
+            onChange={(intensity) => updateAccent(accent.wordId, { intensity })}
             format={(v) => `${Math.round(v * 100)}%`}
           />
           <Slider
@@ -143,7 +158,7 @@ function AccentRow({
             max={2}
             step={0.05}
             disabled={disabled}
-            onChange={(durationSec) => updateAccent(accent.id, { durationSec })}
+            onChange={(durationSec) => updateAccent(accent.wordId, { durationSec })}
             format={(v) => `${v.toFixed(2)} с`}
           />
           {info.params.length > 0 && (
@@ -152,7 +167,7 @@ function AccentRow({
               values={accent.params}
               disabled={disabled}
               onChange={(key, value) =>
-                updateAccent(accent.id, { params: { ...accent.params, [key]: value } })
+                updateAccent(accent.wordId, { params: { ...accent.params, [key]: value } })
               }
             />
           )}

@@ -8,7 +8,13 @@ import { frameCountFor, type FrameRate } from '@/shared'
 import { safeAreaInsets } from '../layout'
 import { SceneRenderer } from '../SceneRenderer'
 import { createFakeTimeline } from './fakeTimeline'
-import { DEV_DURATION_SEC, devEffectFactory, devScene, hashPixels, type DevSceneOptions } from './common'
+import {
+  DEV_DURATION_SEC,
+  devEffectFactory,
+  devScene,
+  hashPixels,
+  type DevSceneOptions,
+} from './common'
 import type { WorkerRequest } from './worker'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -18,6 +24,7 @@ const fpsSel = $<HTMLSelectElement>('fps')
 const titleInput = $<HTMLInputElement>('title')
 const safeToggle = $<HTMLInputElement>('safeToggle')
 const fxToggle = $<HTMLInputElement>('fxToggle')
+const presetSel = $<HTMLSelectElement>('preset')
 const safeBox = $<HTMLDivElement>('safe')
 const playBtn = $<HTMLButtonElement>('play')
 const scrub = $<HTMLInputElement>('scrub')
@@ -26,7 +33,11 @@ const logEl = $<HTMLDivElement>('log')
 
 const timeline = createFakeTimeline({ durationSec: DEV_DURATION_SEC })
 const renderer = new SceneRenderer({ createEffect: devEffectFactory })
-const sceneOptions = (): DevSceneOptions => ({ title: titleInput.value, demoEffects: fxToggle.checked })
+const sceneOptions = (): DevSceneOptions => ({
+  preset: presetSel.value,
+  title: titleInput.value,
+  demoEffects: fxToggle.checked,
+})
 
 let width = 1080
 let height = 1920
@@ -166,7 +177,12 @@ async function checkWorker() {
   worker.postMessage(req)
 }
 
-formatSel.onchange = fpsSel.onchange = titleInput.onchange = fxToggle.onchange = () => void setup()
+formatSel.onchange =
+  fpsSel.onchange =
+  titleInput.onchange =
+  fxToggle.onchange =
+  presetSel.onchange =
+    () => void setup()
 safeToggle.onchange = updateSafeBox
 playBtn.onclick = () => {
   playing = !playing
@@ -186,6 +202,8 @@ $<HTMLButtonElement>('worker').onclick = () => void checkWorker()
 Object.assign(window, {
   renderBench: async (options?: Parameters<typeof import('./bench').runFrameCostBench>[0]) =>
     (await import('./bench')).runFrameCostBench(options),
+  renderPreviewBench: async (options?: Parameters<typeof import('./bench').runPreviewBench>[0]) =>
+    (await import('./bench')).runPreviewBench(options),
 })
 
 await setup()

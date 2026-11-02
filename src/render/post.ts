@@ -45,8 +45,17 @@ export class PostChain {
 
   private readonly passes: PostPass[]
 
-  constructor(passes: PostPass[], width: number, height: number) {
+  /**
+   * Output canvas is CPU-backed (`willReadFrequently`, pixel tests): bring the result back with
+   * readPixels + putImageData. drawImage of a GL canvas would temporarily switch the output to the
+   * GPU rasterizer, so the next frame would rasterize differently from the same frame later.
+   */
+  private readonly cpuOutput: boolean
+  private readback: Uint8Array = new Uint8Array(0)
+
+  constructor(passes: PostPass[], width: number, height: number, cpuOutput = false) {
     this.passes = passes
+    this.cpuOutput = cpuOutput
     this.width = width
     this.height = height
     this.canvas = new OffscreenCanvas(width, height)
@@ -126,12 +135,41 @@ export class PostChain {
   }
 
   private drawBack(output: Ctx2D): void {
+    if (this.cpuOutput) {
+      this.drawBackCpu(output)
+      return
+    }
     output.save()
     output.setTransform(1, 0, 0, 1, 0, 0)
     output.globalAlpha = 1
     output.globalCompositeOperation = 'copy'
     output.drawImage(this.canvas, 0, 0)
     output.restore()
+  }
+
+  private drawBackCpu(output: Ctx2D): void {
+    const gl = this.gl
+    const { width: w, height: h } = this
+    if (this.readback.length !== w * h * 4) this.readback = new Uint8Array(w * h * 4)
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, this.readback)
+    const img = output.createImageData(w, h)
+    const src = this.readback
+    const dst = img.data
+    for (let y = 0; y < h; y++) {
+      // GL rows are bottom-up; ImageData is straight (not premultiplied) alpha.
+      const from = (h - 1 - y) * w * 4
+      const to = y * w * 4
+      for (let i = 0; i < w * 4; i += 4) {
+        const a = src[from + i + 3] ?? 0
+        const k = a > 0 ? 255 / a : 0
+        dst[to + i] = (src[from + i] ?? 0) * k
+        dst[to + i + 1] = (src[from + i + 1] ?? 0) * k
+        dst[to + i + 2] = (src[from + i + 2] ?? 0) * k
+        dst[to + i + 3] = a
+      }
+    }
+    output.putImageData(img, 0, 0)
   }
 
   dispose(): void {

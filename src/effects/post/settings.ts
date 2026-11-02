@@ -1,73 +1,20 @@
 /**
- * Static settings of the post chain (set by a style preset), plus their UI descriptions.
- * Per-frame changes come from `PostDynamics`.
+ * Parameter descriptions of the WebGL2 post effects (one scene effect = one pass) and the
+ * quality profiles of the heavier passes.
  */
 
 import type { LocalizedText, ParamSpec } from '../params'
 
 export type PostQuality = 'low' | 'medium' | 'high'
 
-export interface PostSettings {
-  bloom: { intensity: number; threshold: number; radius: number }
-  /** Chromatic aberration toward the edges, fraction of the width. */
-  chroma: { amount: number }
-  grain: { amount: number; size: number }
-  vhs: { scanlines: number; density: number; wobble: number; noise: number }
-  vignette: { amount: number; softness: number }
-  color: {
-    /** Stops. */
-    exposure: number
-    contrast: number
-    saturation: number
-    /** -1 cool … 1 warm. */
-    temperature: number
-    /** -1 green … 1 magenta. */
-    tint: number
-    /** Lift of the blacks, 0..0.2 (faded film look). */
-    lift: number
-    /** Split toning: shadows / highlights tint colors (hex) and amount. */
-    shadowTint: string
-    highlightTint: string
-    toning: number
-  }
-}
+export type PostEffectType =
+  | 'bloom'
+  | 'chromatic-aberration'
+  | 'color-grade'
+  | 'vignette'
+  | 'scanlines'
+  | 'grain'
 
-export const NEUTRAL_POST_SETTINGS: PostSettings = {
-  bloom: { intensity: 0, threshold: 0.7, radius: 0.5 },
-  chroma: { amount: 0 },
-  grain: { amount: 0, size: 1.5 },
-  vhs: { scanlines: 0, density: 1, wobble: 0, noise: 0 },
-  vignette: { amount: 0, softness: 0.5 },
-  color: {
-    exposure: 0,
-    contrast: 1,
-    saturation: 1,
-    temperature: 0,
-    tint: 0,
-    lift: 0,
-    shadowTint: '#000000',
-    highlightTint: '#ffffff',
-    toning: 0,
-  },
-}
-
-/** Fills missing groups / fields from the neutral settings. */
-export function normalizePostSettings(input: DeepPartial<PostSettings> | undefined): PostSettings {
-  const n = NEUTRAL_POST_SETTINGS
-  const i = input ?? {}
-  return {
-    bloom: { ...n.bloom, ...i.bloom },
-    chroma: { ...n.chroma, ...i.chroma },
-    grain: { ...n.grain, ...i.grain },
-    vhs: { ...n.vhs, ...i.vhs },
-    vignette: { ...n.vignette, ...i.vignette },
-    color: { ...n.color, ...i.color },
-  }
-}
-
-export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? Partial<T[K]> : T[K] }
-
-/** Internal resolution / tap counts per quality level. */
 export interface QualityProfile {
   /** Bloom buffer size as a fraction of the frame. */
   bloomScale: number
@@ -82,84 +29,88 @@ export const QUALITY_PROFILES: Readonly<Record<PostQuality, QualityProfile>> = {
 }
 
 const l = (ru: string, en: string): LocalizedText => ({ ru, en })
-const num = (
-  key: string,
-  label: LocalizedText,
-  min: number,
-  max: number,
-  step: number,
-  def: number,
-): ParamSpec => ({ key, type: 'number', label, min, max, step, default: def })
+const n = (key: string, label: LocalizedText, min: number, max: number, step: number, def: number): ParamSpec => ({
+  key,
+  type: 'number',
+  label,
+  min,
+  max,
+  step,
+  default: def,
+})
+const beatPulseParam = (max: number, step: number): ParamSpec => ({
+  ...n('beatPulse', l('Пульс на битах', 'Beat pulse'), 0, max, step, 0),
+  hint: l('Насколько эффект усиливается на долях', 'How much the effect kicks on beats'),
+})
 
-/** UI groups; keys are `group.field`, e.g. 'bloom.intensity'. Defaults are neutral (effect off). */
-export const POST_PARAM_GROUPS: { group: keyof PostSettings; label: LocalizedText; params: ParamSpec[] }[] = [
-  {
-    group: 'bloom',
+export const POST_EFFECTS: Readonly<
+  Record<PostEffectType, { label: LocalizedText; description: LocalizedText; params: ParamSpec[] }>
+> = {
+  bloom: {
     label: l('Свечение', 'Bloom'),
+    description: l('Яркие места светятся', 'Bright areas glow'),
     params: [
-      num('bloom.intensity', l('Сила', 'Intensity'), 0, 3, 0.01, 0),
-      num('bloom.threshold', l('Порог', 'Threshold'), 0, 1, 0.01, 0.7),
-      num('bloom.radius', l('Радиус', 'Radius'), 0, 1, 0.01, 0.5),
+      n('strength', l('Сила', 'Strength'), 0, 3, 0.01, 0.6),
+      n('threshold', l('Порог', 'Threshold'), 0, 1, 0.01, 0.6),
+      n('radius', l('Радиус', 'Radius'), 0, 1, 0.01, 0.5),
+      beatPulseParam(2, 0.05),
+      {
+        key: 'quality',
+        type: 'enum',
+        label: l('Качество', 'Quality'),
+        options: [
+          { value: 'low', label: l('Низкое', 'Low') },
+          { value: 'medium', label: l('Среднее', 'Medium') },
+          { value: 'high', label: l('Высокое', 'High') },
+        ],
+        default: 'medium',
+      },
     ],
   },
-  {
-    group: 'chroma',
+  'chromatic-aberration': {
     label: l('Хроматическая аберрация', 'Chromatic aberration'),
-    params: [num('chroma.amount', l('Сила', 'Amount'), 0, 0.02, 0.0005, 0)],
+    description: l('Цветные края к краям кадра', 'Color fringes toward the frame edges'),
+    params: [n('amount', l('Сила', 'Amount'), 0, 0.02, 0.0005, 0.003), beatPulseParam(0.01, 0.0005)],
   },
-  {
-    group: 'grain',
-    label: l('Плёночное зерно', 'Film grain'),
-    params: [
-      num('grain.amount', l('Сила', 'Amount'), 0, 0.4, 0.005, 0),
-      num('grain.size', l('Размер', 'Size'), 1, 4, 0.1, 1.5),
-    ],
-  },
-  {
-    group: 'vhs',
-    label: l('VHS и скан-линии', 'VHS & scanlines'),
-    params: [
-      num('vhs.scanlines', l('Скан-линии', 'Scanlines'), 0, 1, 0.01, 0),
-      num('vhs.density', l('Плотность линий', 'Line density'), 0.25, 3, 0.05, 1),
-      num('vhs.wobble', l('Дрожание', 'Wobble'), 0, 1, 0.01, 0),
-      num('vhs.noise', l('Помехи', 'Noise'), 0, 1, 0.01, 0),
-    ],
-  },
-  {
-    group: 'vignette',
-    label: l('Виньетка', 'Vignette'),
-    params: [
-      num('vignette.amount', l('Сила', 'Amount'), 0, 1, 0.01, 0),
-      num('vignette.softness', l('Мягкость', 'Softness'), 0.05, 1, 0.01, 0.5),
-    ],
-  },
-  {
-    group: 'color',
+  'color-grade': {
     label: l('Цветокоррекция', 'Color grading'),
+    description: l('Экспозиция, контраст, баланс, тонирование', 'Exposure, contrast, balance, toning'),
     params: [
-      num('color.exposure', l('Экспозиция', 'Exposure'), -2, 2, 0.01, 0),
-      num('color.contrast', l('Контраст', 'Contrast'), 0.5, 2, 0.01, 1),
-      num('color.saturation', l('Насыщенность', 'Saturation'), 0, 2, 0.01, 1),
-      num('color.temperature', l('Температура', 'Temperature'), -1, 1, 0.01, 0),
-      num('color.tint', l('Оттенок', 'Tint'), -1, 1, 0.01, 0),
-      num('color.lift', l('Подъём теней', 'Lift'), 0, 0.2, 0.005, 0),
-      { key: 'color.shadowTint', type: 'color', label: l('Тон теней', 'Shadow tint'), default: '#000000' },
-      { key: 'color.highlightTint', type: 'color', label: l('Тон светов', 'Highlight tint'), default: '#ffffff' },
-      num('color.toning', l('Сила тонирования', 'Toning'), 0, 1, 0.01, 0),
+      n('exposure', l('Экспозиция', 'Exposure'), -2, 2, 0.01, 0),
+      n('contrast', l('Контраст', 'Contrast'), 0.5, 2, 0.01, 1),
+      n('saturation', l('Насыщенность', 'Saturation'), 0, 2, 0.01, 1),
+      n('temperature', l('Температура', 'Temperature'), -1, 1, 0.01, 0),
+      n('tint', l('Оттенок', 'Tint'), -1, 1, 0.01, 0),
+      n('lift', l('Подъём теней', 'Lift'), 0, 0.2, 0.005, 0),
+      { key: 'shadowTint', type: 'color', label: l('Тон теней', 'Shadow tint'), default: '#000000' },
+      { key: 'highlightTint', type: 'color', label: l('Тон светов', 'Highlight tint'), default: '#ffffff' },
+      n('toning', l('Сила тонирования', 'Toning'), 0, 1, 0.01, 0),
     ],
   },
-]
-
-/** Reads `group.field` from settings (for UI binding). */
-export function getPostValue(s: PostSettings, key: string): number | string | undefined {
-  const [group, field] = key.split('.') as [keyof PostSettings, string]
-  const g = s[group] as Record<string, number | string> | undefined
-  return g?.[field]
-}
-
-/** Returns a copy with `group.field` set. */
-export function setPostValue(s: PostSettings, key: string, value: number | string): PostSettings {
-  const [group, field] = key.split('.') as [keyof PostSettings, string]
-  if (!(group in s) || field === undefined) return s
-  return { ...s, [group]: { ...s[group], [field]: value } }
+  vignette: {
+    label: l('Виньетка', 'Vignette'),
+    description: l('Затемнение к углам', 'Darkens the corners'),
+    params: [
+      n('amount', l('Сила', 'Amount'), 0, 1, 0.01, 0.4),
+      n('softness', l('Мягкость', 'Softness'), 0.05, 1, 0.01, 0.5),
+    ],
+  },
+  scanlines: {
+    label: l('VHS и скан-линии', 'VHS & scanlines'),
+    description: l('Строки развёртки, дрожание, помехи', 'Scanlines, tracking wobble, noise'),
+    params: [
+      n('amount', l('Скан-линии', 'Scanlines'), 0, 1, 0.01, 0.3),
+      n('density', l('Плотность', 'Density'), 0.25, 3, 0.05, 1),
+      n('wobble', l('Дрожание', 'Wobble'), 0, 1, 0.01, 0),
+      n('noise', l('Помехи', 'Noise'), 0, 1, 0.01, 0),
+    ],
+  },
+  grain: {
+    label: l('Плёночное зерно', 'Film grain'),
+    description: l('Зерно, меняется каждый кадр', 'Grain that changes every frame'),
+    params: [
+      n('amount', l('Сила', 'Amount'), 0, 0.4, 0.005, 0.05),
+      n('size', l('Размер', 'Size'), 1, 4, 0.1, 1.5),
+    ],
+  },
 }

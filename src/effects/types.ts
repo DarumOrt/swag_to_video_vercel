@@ -1,26 +1,23 @@
 /**
- * What the effects module produces for one frame. `evaluateEffects` returns plain data; the render
- * engine applies it in three places:
- *
- *   camera   — transform around the scene layers (zoom, offset, rotation),
- *   layerTime — time the scene layers are drawn at (slow-motion remaps it),
- *   overlays — drawn on top of the layers in screen space (`drawOverlays`),
- *   post     — per-frame uniforms of the WebGL2 post chain (`PostProcessor.render`).
+ * Plain data the pure effect logic produces for one frame. The engine adapters in `host.ts` apply
+ * it through the render engine's hooks: camera, overlay (2D), post (WebGL2 uniforms), time warp.
  */
 
 import type { AccentEffectId } from '@/shared'
 
-/** Camera around the frame center. Offsets are fractions of `layout.unit` (the shorter side). */
+/**
+ * Camera around the frame center; offsets in units (fraction of the shorter side).
+ * Same shape as `CameraTransform` in the render engine's effects host.
+ */
 export interface CameraTransform {
-  /** 1 = no zoom. */
   zoom: number
-  x: number
-  y: number
   /** Radians, clockwise. */
   rotation: number
+  x: number
+  y: number
 }
 
-export const IDENTITY_CAMERA: Readonly<CameraTransform> = { zoom: 1, x: 0, y: 0, rotation: 0 }
+export const IDENTITY_CAMERA: Readonly<CameraTransform> = { zoom: 1, rotation: 0, x: 0, y: 0 }
 
 export interface FlashOverlay {
   kind: 'flash'
@@ -64,7 +61,7 @@ export interface WordOverlay {
 
 export type OverlayItem = FlashOverlay | ParticleOverlay | WordOverlay
 
-/** Per-frame inputs of the post chain on top of the preset's static settings. */
+/** Per-frame uniforms of the accent post pass. */
 export interface PostDynamics {
   /** Horizontal RGB split, fraction of the frame width. */
   rgbSplit: number
@@ -79,12 +76,6 @@ export interface PostDynamics {
   hueShift: number
   /** Added saturation, -1..1. */
   saturation: number
-  /** Multiplier on bloom intensity, 1 = preset value. */
-  bloomBoost: number
-  /** Added chromatic aberration, fraction of the frame width. */
-  chroma: number
-  /** Exposure added in stops. */
-  exposure: number
 }
 
 export const NEUTRAL_POST: Readonly<PostDynamics> = {
@@ -95,9 +86,10 @@ export const NEUTRAL_POST: Readonly<PostDynamics> = {
   invert: 0,
   hueShift: 0,
   saturation: 0,
-  bloomBoost: 1,
-  chroma: 0,
-  exposure: 0,
+}
+
+export function isNeutralPost(p: PostDynamics): boolean {
+  return p.rgbSplit === 0 && p.glitch === 0 && p.invert === 0 && p.hueShift === 0 && p.saturation === 0
 }
 
 export interface ActiveAccentInfo {
@@ -107,17 +99,14 @@ export interface ActiveAccentInfo {
   level: number
 }
 
-export interface EffectFrame {
+/** Everything the accents contribute to one frame. */
+export interface AccentFrame {
   time: number
-  /** Time the scene layers should be drawn at (equals `time` unless slow-motion is active). */
-  layerTime: number
   camera: CameraTransform
   /** Bottom to top. */
   overlays: OverlayItem[]
   post: PostDynamics
-  /** Beat pulse 0..1 (for layers that want to react). */
-  beat: number
-  /** 0..1 inside a `drop` section. */
-  drop: number
+  /** Seconds the scene lags behind real time (slow-motion); layer time = time - timeLag. */
+  timeLag: number
   active: ActiveAccentInfo[]
 }

@@ -96,6 +96,12 @@ const ru = {
     duration: 'Длительность',
     sameWords: (count: number) => `Ко всем таким словам (${count})`,
     title: 'Акцент',
+    style: 'Характер',
+    styles: {
+      minimal: 'Сдержанно',
+      balanced: 'Баланс',
+      aggressive: 'Агрессивно',
+    },
   },
   lyrics: {
     title: 'Текст',

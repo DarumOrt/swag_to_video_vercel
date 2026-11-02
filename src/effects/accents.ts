@@ -230,7 +230,7 @@ const particleBurst: AccentEffectDef = {
     n('spread', 'Разброс', 'Spread', 20, 360, 5, 360, '°'),
     n('direction', 'Направление', 'Direction', -180, 180, 5, -90, '°'),
     n('originX', 'Центр X', 'Origin X', 0, 1, 0.01, 0.5),
-    n('originY', 'Центр Y', 'Origin Y', 0, 1, 0.01, 0.42),
+    n('originY', 'Центр Y', 'Origin Y', 0, 1, 0.01, 0.66),
     {
       key: 'shape',
       type: 'enum',

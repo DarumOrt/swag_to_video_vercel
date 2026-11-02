@@ -70,10 +70,10 @@ describe('accents', () => {
   it('edits make an accent a user accent; removal works', () => {
     regenerateAccents()
     const first = accents()[0]!
-    updateAccent(first.id, { intensity: 0.2 })
+    updateAccent(first.wordId, { intensity: 0.2 })
     expect(accents()[0]).toMatchObject({ intensity: 0.2, source: 'user' })
-    removeAccent(first.id)
-    expect(accents().find((a) => a.id === first.id)).toBeUndefined()
+    removeAccent(first.wordId)
+    expect(accents().find((a) => a.wordId === first.wordId)).toBeUndefined()
   })
 })
 

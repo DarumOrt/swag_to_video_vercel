@@ -1,33 +1,22 @@
 /**
- * Public API of the effects module: accent effects on words, rhythm reaction, overlays and the
- * WebGL2 post chain. Owned by the "Эффекты и пост-обработка" session — see docs/sessions/effects.md.
+ * Public API of the effects module: accent effects on words, rhythm reaction, overlays and WebGL2
+ * post passes. Owned by the "Эффекты и пост-обработка" session — see docs/sessions/effects.md.
  *
- * Pure and deterministic: an EffectFrame depends only on (timeline, config, time). Nothing touches
- * window/document on import, everything works in a worker.
+ * The render engine picks up `createEffect` (see `src/render/effectsHost.ts`). Everything is
+ * deterministic and touches no window/document on import, so it also runs in the export worker.
  */
 
-// Per-frame evaluation
+// Engine entry point and scene effect types
 export {
-  evaluateEffects,
-  prepareEffects,
-  resolveEffectsConfig,
-  type EffectsConfig,
-  type EffectsConfigInput,
-  type PreparedEffects,
-} from './evaluate'
-export {
-  IDENTITY_CAMERA,
-  NEUTRAL_POST,
-  PARTICLE_STRIDE,
-  type ActiveAccentInfo,
-  type CameraTransform,
-  type EffectFrame,
-  type FlashOverlay,
-  type OverlayItem,
-  type ParticleOverlay,
-  type PostDynamics,
-  type WordOverlay,
-} from './types'
+  createEffect,
+  EFFECT_TYPES,
+  effectFontFamilies,
+  isEffectType,
+  styleEffects,
+  type EffectHook,
+  type EffectType,
+  type EffectTypeInfo,
+} from './host'
 
 // Accents
 export {
@@ -38,6 +27,12 @@ export {
   type AccentEffectDef,
 } from './accents'
 export {
+  evaluateAccents,
+  prepareAccents,
+  type AccentsOptions,
+  type PreparedAccents,
+} from './evaluate'
+export {
   accentWindow,
   envelopeAt,
   isActive,
@@ -46,15 +41,30 @@ export {
   type EnvelopeShape,
 } from './envelope'
 export type { CurveId } from './math'
+export {
+  IDENTITY_CAMERA,
+  NEUTRAL_POST,
+  PARTICLE_STRIDE,
+  type AccentFrame,
+  type ActiveAccentInfo,
+  type CameraTransform,
+  type FlashOverlay,
+  type OverlayItem,
+  type ParticleOverlay,
+  type PostDynamics,
+  type WordOverlay,
+} from './types'
 
 // Rhythm
 export {
+  applyBeatCamera,
+  BEAT_CAMERA_PARAMS,
+  BEAT_FLASH_PARAMS,
   beatAt,
+  beatFlash,
+  beatPulse,
   dropAmountAt,
-  DEFAULT_RHYTHM,
-  RHYTHM_PARAM_SPECS,
   type BeatState,
-  type RhythmSettings,
 } from './rhythm'
 
 // Params (auto UI)
@@ -74,20 +84,14 @@ export {
   EFFECT_STYLES,
   type EffectStyleId,
   type EffectStylePreset,
+  type StyleEffect,
 } from './presets'
 
-// Drawing
-export { cameraMatrix, coverZoom, isIdentityCamera, type Matrix2D, type Viewport } from './camera'
-export { DEFAULT_OVERLAY_OPTIONS, drawOverlays, type OverlayOptions } from './overlay'
-export { PostProcessor, isPostSupported, type PostProcessorOptions } from './post/PostProcessor'
+// Drawing and post
+export { DEFAULT_OVERLAY_OPTIONS, drawOverlays, type OverlayOptions, type Viewport } from './overlay'
 export {
-  getPostValue,
-  NEUTRAL_POST_SETTINGS,
-  normalizePostSettings,
-  POST_PARAM_GROUPS,
+  POST_EFFECTS,
   QUALITY_PROFILES,
-  setPostValue,
+  type PostEffectType,
   type PostQuality,
-  type PostSettings,
 } from './post/settings'
-export { EffectsCompositor, type CompositorOptions } from './compositor'

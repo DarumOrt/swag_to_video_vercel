@@ -5,62 +5,9 @@
  */
 
 import type { AudioAnalysis } from '@/shared'
-import type { FrameBuilder } from './accents'
 import { clamp01, lastIndexAtOrBefore, noise1 } from './math'
-import type { LocalizedText, ParamSpec } from './params'
-
-export interface RhythmSettings {
-  enabled: boolean
-  /** Zoom added on a full-strength beat (0.03 = +3%). */
-  zoom: number
-  /** Camera kick on a beat, units. */
-  shake: number
-  /** Slow ambient drift ("handheld"), units. */
-  sway: number
-  /** Beat pulse decay time constant, seconds. */
-  decaySec: number
-  /** Flash alpha on strong beats (0 = off). */
-  flash: number
-  /** Beats at least this strong flash, 0..1. */
-  flashThreshold: number
-  flashColor: string
-  /** Multiplier for every beat reaction inside a drop (1 = no boost). */
-  dropBoost: number
-  /** Bloom multiplier added on a beat (0.5 → bloom ×1.5 at the hit). */
-  bloomPulse: number
-  /** Chromatic aberration added on a beat, fraction of the width. */
-  chromaPulse: number
-}
-
-export const DEFAULT_RHYTHM: RhythmSettings = {
-  enabled: true,
-  zoom: 0.025,
-  shake: 0.004,
-  sway: 0.004,
-  decaySec: 0.14,
-  flash: 0,
-  flashThreshold: 0.85,
-  flashColor: '#ffffff',
-  dropBoost: 1.7,
-  bloomPulse: 0.4,
-  chromaPulse: 0.0015,
-}
-
-const l = (ru: string, en: string): LocalizedText => ({ ru, en })
-
-export const RHYTHM_PARAM_SPECS: ParamSpec[] = [
-  { key: 'enabled', type: 'boolean', label: l('Реакция на ритм', 'React to rhythm'), default: true },
-  { key: 'zoom', type: 'number', label: l('Пульс камеры', 'Camera pulse'), min: 0, max: 0.15, step: 0.001, default: DEFAULT_RHYTHM.zoom },
-  { key: 'shake', type: 'number', label: l('Толчок', 'Kick shake'), min: 0, max: 0.04, step: 0.001, default: DEFAULT_RHYTHM.shake },
-  { key: 'sway', type: 'number', label: l('Покачивание', 'Sway'), min: 0, max: 0.03, step: 0.001, default: DEFAULT_RHYTHM.sway },
-  { key: 'decaySec', type: 'number', label: l('Затухание', 'Decay'), min: 0.04, max: 0.6, step: 0.01, default: DEFAULT_RHYTHM.decaySec, unit: 's' },
-  { key: 'flash', type: 'number', label: l('Вспышки на сильных долях', 'Flash on strong beats'), min: 0, max: 1, step: 0.01, default: DEFAULT_RHYTHM.flash },
-  { key: 'flashThreshold', type: 'number', label: l('Порог вспышки', 'Flash threshold'), min: 0, max: 1, step: 0.01, default: DEFAULT_RHYTHM.flashThreshold },
-  { key: 'flashColor', type: 'color', label: l('Цвет вспышки', 'Flash color'), default: DEFAULT_RHYTHM.flashColor },
-  { key: 'dropBoost', type: 'number', label: l('Усиление в дропе', 'Drop boost'), min: 1, max: 4, step: 0.05, default: DEFAULT_RHYTHM.dropBoost },
-  { key: 'bloomPulse', type: 'number', label: l('Пульс свечения', 'Bloom pulse'), min: 0, max: 2, step: 0.05, default: DEFAULT_RHYTHM.bloomPulse },
-  { key: 'chromaPulse', type: 'number', label: l('Пульс аберрации', 'Aberration pulse'), min: 0, max: 0.01, step: 0.0005, default: DEFAULT_RHYTHM.chromaPulse },
-]
+import { num, str, type LocalizedText, type ParamSpec, type ParamValues } from './params'
+import type { CameraTransform, FlashOverlay } from './types'
 
 const FALLBACK_DOWNBEAT = 1
 const FALLBACK_BEAT = 0.6
@@ -69,7 +16,7 @@ const DROP_RAMP_SEC = 0.2
 export interface BeatState {
   /** Index into rhythm.beats of the last beat at or before t, -1 before the first. */
   index: number
-  /** Seconds since that beat. */
+  /** Seconds since that beat (Infinity before the first). */
   since: number
   /** 0..1 */
   strength: number
@@ -77,23 +24,17 @@ export interface BeatState {
 
 export function beatAt(audio: AudioAnalysis, t: number): BeatState {
   const { beats, beatStrength, downbeats } = audio.rhythm
-  const index = lastIndexAtOrBefore(beats, t)
+  const index = lastIndexAtOrBefore(beats, t + 1e-6)
   if (index < 0) return { index, since: Infinity, strength: 0 }
   const time = beats[index] ?? 0
-  return { index, since: t - time, strength: beatStrengthOf(index, time, beatStrength, downbeats) }
-}
-
-function beatStrengthOf(
-  index: number,
-  time: number,
-  beatStrength: Float32Array | undefined,
-  downbeats: Float32Array,
-): number {
   const s = beatStrength?.[index]
-  if (s !== undefined && Number.isFinite(s)) return clamp01(s)
-  const d = lastIndexAtOrBefore(downbeats, time + 1e-3)
-  const isDown = d >= 0 && Math.abs((downbeats[d] ?? -1) - time) < 2e-3
-  return isDown ? FALLBACK_DOWNBEAT : FALLBACK_BEAT
+  let strength: number
+  if (s !== undefined && Number.isFinite(s)) strength = clamp01(s)
+  else {
+    const d = lastIndexAtOrBefore(downbeats, time + 1e-3)
+    strength = d >= 0 && Math.abs((downbeats[d] ?? -1) - time) < 2e-3 ? FALLBACK_DOWNBEAT : FALLBACK_BEAT
+  }
+  return { index, since: Math.max(t - time, 0), strength }
 }
 
 /** 0..1: how deep t is inside a `drop` section, with short ramps at the edges. 0 without sections. */
@@ -109,42 +50,76 @@ export function dropAmountAt(audio: AudioAnalysis, t: number): number {
   return 0
 }
 
-/** Adds the rhythm reaction to the frame; returns the beat pulse and drop amount. */
-export function applyRhythm(
+/** Beat pulse 0..1 (strength × exponential decay), multiplied by `dropBoost` inside drops. */
+export function beatPulse(audio: AudioAnalysis, t: number, decaySec: number, dropBoost = 1): number {
+  const beat = beatAt(audio, t)
+  if (beat.index < 0) return 0
+  const pulse = beat.strength * Math.exp(-beat.since / Math.max(decaySec, 0.01))
+  return pulse * (1 + (dropBoost - 1) * dropAmountAt(audio, t))
+}
+
+const l = (ru: string, en: string): LocalizedText => ({ ru, en })
+const n = (key: string, label: LocalizedText, min: number, max: number, step: number, def: number, unit?: string): ParamSpec =>
+  ({ key, type: 'number', label, min, max, step, default: def, unit })
+
+// ---------------------------------------------------------------------------
+// beat-camera
+// ---------------------------------------------------------------------------
+
+export const BEAT_CAMERA_PARAMS: ParamSpec[] = [
+  n('amount', l('Пульс зума', 'Zoom pulse'), 0, 0.15, 0.001, 0.025),
+  n('shake', l('Толчок', 'Kick shake'), 0, 0.04, 0.001, 0.004),
+  n('rotation', l('Поворот на долю', 'Beat rotation'), 0, 4, 0.1, 0, '°'),
+  n('sway', l('Покачивание', 'Sway'), 0, 0.03, 0.001, 0.004),
+  n('decay', l('Затухание', 'Decay'), 0.04, 0.6, 0.01, 0.14, 's'),
+  n('dropBoost', l('Усиление в дропе', 'Drop boost'), 1, 4, 0.05, 1.7),
+]
+
+/** Adds the beat reaction to `cam` (mutates). `params` resolved against BEAT_CAMERA_PARAMS. */
+export function applyBeatCamera(
   audio: AudioAnalysis,
   t: number,
-  settings: RhythmSettings,
+  params: ParamValues,
   seed: number,
-  out: FrameBuilder,
-): { beat: number; drop: number } {
-  const drop = dropAmountAt(audio, t)
+  cam: CameraTransform,
+): void {
   const beat = beatAt(audio, t)
-  const pulse =
-    beat.index >= 0 ? beat.strength * Math.exp(-beat.since / Math.max(settings.decaySec, 0.01)) : 0
-  if (!settings.enabled) return { beat: pulse, drop }
-
-  const boost = 1 + (settings.dropBoost - 1) * drop
-  const p = pulse * boost
-  out.camera.zoom *= 1 + settings.zoom * p
+  const p = beatPulse(audio, t, num(params, 'decay'), num(params, 'dropBoost'))
+  const shake = num(params, 'shake')
+  const sway = num(params, 'sway')
+  cam.zoom *= 1 + num(params, 'amount') * p
   // Kick: a direction picked per beat, decaying with the pulse.
-  out.camera.x += settings.shake * p * noise1(seed, beat.index * 1.37)
-  out.camera.y += settings.shake * p * noise1(seed ^ 0x9e3779b9, beat.index * 1.37)
-  out.camera.x += settings.sway * noise1(seed ^ 0x85ebca6b, t * 0.35)
-  out.camera.y += settings.sway * noise1(seed ^ 0xc2b2ae35, t * 0.29)
-  out.camera.rotation += settings.sway * 0.6 * noise1(seed ^ 0x27d4eb2f, t * 0.23)
+  cam.x += shake * p * noise1(seed, beat.index * 1.37)
+  cam.y += shake * p * noise1(seed ^ 0x9e3779b9, beat.index * 1.37)
+  cam.rotation += ((num(params, 'rotation') * Math.PI) / 180) * p * (beat.index % 2 === 0 ? 1 : -1)
+  // Slow ambient drift ("handheld").
+  cam.x += sway * noise1(seed ^ 0x85ebca6b, t * 0.35)
+  cam.y += sway * noise1(seed ^ 0xc2b2ae35, t * 0.29)
+  cam.rotation += sway * 0.6 * noise1(seed ^ 0x27d4eb2f, t * 0.23)
+}
 
-  out.post.bloomBoost += settings.bloomPulse * p
-  out.post.chroma += settings.chromaPulse * p
+// ---------------------------------------------------------------------------
+// beat-flash
+// ---------------------------------------------------------------------------
 
-  if (settings.flash > 0 && beat.index >= 0) {
-    // Inside a drop weaker beats flash too.
-    const threshold = settings.flashThreshold * (1 - 0.35 * drop)
-    if (beat.strength >= threshold) {
-      const alpha = settings.flash * Math.exp(-beat.since / 0.09) * Math.min(boost, 1.5)
-      if (alpha > 0.002) {
-        out.overlays.push({ kind: 'flash', color: settings.flashColor, alpha: clamp01(alpha), blend: 'screen' })
-      }
-    }
-  }
-  return { beat: pulse, drop }
+export const BEAT_FLASH_PARAMS: ParamSpec[] = [
+  n('amount', l('Яркость', 'Opacity'), 0, 1, 0.01, 0.2),
+  n('threshold', l('Порог силы доли', 'Beat strength threshold'), 0, 1, 0.01, 0.85),
+  n('decay', l('Затухание', 'Decay'), 0.03, 0.5, 0.01, 0.09, 's'),
+  { key: 'color', type: 'color', label: l('Цвет', 'Color'), default: '#ffffff' },
+  n('dropBoost', l('Усиление в дропе', 'Drop boost'), 1, 3, 0.05, 1.5),
+]
+
+/** Flash on strong beats; inside a drop weaker beats flash too. null when nothing to draw. */
+export function beatFlash(audio: AudioAnalysis, t: number, params: ParamValues): FlashOverlay | null {
+  const amount = num(params, 'amount')
+  if (amount <= 0) return null
+  const beat = beatAt(audio, t)
+  if (beat.index < 0) return null
+  const drop = dropAmountAt(audio, t)
+  if (beat.strength < num(params, 'threshold') * (1 - 0.35 * drop)) return null
+  const boost = 1 + (num(params, 'dropBoost') - 1) * drop
+  const alpha = clamp01(amount * boost * Math.exp(-beat.since / Math.max(num(params, 'decay'), 0.01)))
+  if (alpha < 0.003) return null
+  return { kind: 'flash', color: str(params, 'color'), alpha, blend: 'screen' }
 }

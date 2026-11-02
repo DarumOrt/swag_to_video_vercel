@@ -6,6 +6,7 @@
 export { SceneRenderer, type SceneRendererOptions } from './SceneRenderer'
 export {
   createDefaultScene,
+  layerDefaults,
   normalizeScene,
   SCENE_VERSION,
   type LayerSpec,
@@ -31,3 +32,45 @@ export type { BandReaction, Ctx2D, FrameContext, Layer, LayerSpecBase } from './
 
 /** Synthetic timeline for dev pages and tests (also used by export). */
 export { createFakeTimeline, type FakeTimelineOptions } from './dev/fakeTimeline'
+
+// Effects extension points (implemented in `@/effects`)
+export {
+  applyCamera,
+  IDENTITY_CAMERA,
+  type CameraTransform,
+  type Effect,
+  type EffectFactory,
+  type EffectSpec,
+  type PostIO,
+  type PostKit,
+  type PostPass,
+  type RenderTarget,
+  type ShaderProgram,
+  type TimeWarpInfo,
+} from './effectsHost'
+export { beatAt, sectionAt, type BeatInfo } from './rhythm'
+
+// Layers added in milestone 3
+export { KINETIC_DEFAULTS, type KineticSpec } from './layers/kinetic'
+export { NOISE_DEFAULTS, type NoiseSpec } from './layers/noise'
+
+// Style presets and parameter schemas (auto UI)
+export {
+  buildPresetScene,
+  DEFAULT_STYLE_PRESET,
+  getStylePreset,
+  presetDefaults,
+  STYLE_PRESETS,
+  type StylePreset,
+  type StylePresetId,
+} from './styles/presets'
+export { LAYER_SCHEMAS, type LayerSchema } from './styles/layerSchemas'
+export {
+  defaultParams,
+  FONT_OPTIONS,
+  resolveParams,
+  type LocalizedText,
+  type ParamSpec,
+  type ParamValue,
+  type ParamValues,
+} from './styles/params'

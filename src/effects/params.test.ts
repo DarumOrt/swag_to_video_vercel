@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ACCENT_EFFECT_ORDER, ACCENT_EFFECTS } from './accents'
 import { defaultParams, resolveParams, type ParamSpec } from './params'
-import { POST_PARAM_GROUPS } from './post/settings'
-import { RHYTHM_PARAM_SPECS } from './rhythm'
+import { EFFECT_TYPES } from './host'
 
 const specs: ParamSpec[] = [
   { key: 'n', type: 'number', label: { ru: 'n', en: 'n' }, min: 0, max: 1, step: 0.1, default: 0.5 },
@@ -26,7 +25,7 @@ describe('resolveParams', () => {
   })
 
   it('clamps numbers and rejects wrong types', () => {
-    expect(resolveParams(specs, { n: 7, b: 'yes', e: 'q', c: 'red' })).toEqual(defaultParams(specs).n === 0.5 ? { n: 1, b: true, e: 'a', c: '#ffffff' } : {})
+    expect(resolveParams(specs, { n: 7, b: 'yes', e: 'q', c: 'red' })).toEqual({ ...defaultParams(specs), n: 1 })
     expect(resolveParams(specs, { n: NaN }).n).toBe(0.5)
     expect(resolveParams(specs, { e: 'z', c: '#FF0000' })).toMatchObject({ e: 'z', c: '#ff0000' })
   })
@@ -35,8 +34,7 @@ describe('resolveParams', () => {
 describe('published param specs', () => {
   const all: [string, ParamSpec[]][] = [
     ...ACCENT_EFFECT_ORDER.map((id) => [id, ACCENT_EFFECTS[id].params] as [string, ParamSpec[]]),
-    ['rhythm', RHYTHM_PARAM_SPECS],
-    ...POST_PARAM_GROUPS.map((g) => [g.group, g.params] as [string, ParamSpec[]]),
+    ...Object.values(EFFECT_TYPES).map((t) => [t.type, t.params] as [string, ParamSpec[]]),
   ]
 
   it.each(all)('%s: unique keys, defaults inside ranges, labels in RU and EN', (_, list) => {

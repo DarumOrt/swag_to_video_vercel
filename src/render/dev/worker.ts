@@ -3,7 +3,13 @@
 import type { FrameRate } from '@/shared'
 import { createFakeTimeline } from './fakeTimeline'
 import { SceneRenderer } from '../SceneRenderer'
-import { DEV_DURATION_SEC, devEffectFactory, devScene, hashPixels, type DevSceneOptions } from './common'
+import {
+  DEV_DURATION_SEC,
+  devEffectFactory,
+  devScene,
+  hashPixels,
+  type DevSceneOptions,
+} from './common'
 
 export interface WorkerRequest {
   width: number

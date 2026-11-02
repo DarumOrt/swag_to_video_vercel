@@ -4,7 +4,6 @@
  */
 
 import type { Ctx2D } from '@/render'
-import type { Viewport } from './camera'
 import { rgba } from './math'
 import {
   PARTICLE_STRIDE,
@@ -13,6 +12,13 @@ import {
   type ParticleOverlay,
   type WordOverlay,
 } from './types'
+
+/** Frame size in px; `unit` is the shorter side (`layout` from the frame context fits). */
+export interface Viewport {
+  width: number
+  height: number
+  unit: number
+}
 
 export interface OverlayOptions {
   /** CSS font-family for the full-screen word; the renderer passes a loaded embedded font. */

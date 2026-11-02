@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Effects test</title>
+    <style>
+      body {
+        font:
+          13px system-ui,
+          sans-serif;
+        background: #111;
+        color: #eee;
+        margin: 12px;
+      }
+      fieldset {
+        border: 1px solid #333;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin: 0 0 8px;
+      }
+      #main {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+      }
+      #canvas {
+        display: block;
+        background: #000;
+        max-height: calc(100vh - 150px);
+        max-width: 60vw;
+      }
+      #side {
+        min-width: 300px;
+        max-width: 380px;
+        max-height: calc(100vh - 150px);
+        overflow: auto;
+      }
+      #side h4 {
+        margin: 10px 0 4px;
+        color: #9cf;
+      }
+      .row {
+        display: grid;
+        grid-template-columns: 130px 1fr 52px;
+        gap: 6px;
+        align-items: center;
+        margin: 2px 0;
+      }
+      .row output {
+        font-family: ui-monospace, monospace;
+        color: #aaa;
+      }
+      #stats,
+      #log {
+        font-family: ui-monospace, monospace;
+        color: #9cf;
+        white-space: pre-wrap;
+      }
+      #scrub {
+        width: 280px;
+      }
+    </style>
+  </head>
+  <body>
+    <h3 style="margin: 0 0 8px">SwagToVideo · стенд эффектов</h3>
+    <fieldset>
+      <label
+        >Стиль <select id="style"></select
+      ></label>
+      <label
+        >Акценты
+        <select id="accentMode"></select>
+      </label>
+      <label
+        >Качество bloom
+        <select id="quality">
+          <option value="low">низкое</option>
+          <option value="medium" selected>среднее</option>
+          <option value="high">высокое</option>
+        </select></label
+      >
+      <label
+        >Формат
+        <select id="format">
+          <option value="1080x1920" selected>9:16 · 1080×1920</option>
+          <option value="720x1280">9:16 · 720×1280</option>
+          <option value="1920x1080">16:9 · 1920×1080</option>
+          <option value="1080x1080">1:1 · 1080×1080</option>
+        </select></label
+      >
+      <label
+        >FPS
+        <select id="fps">
+          <option>30</option>
+          <option selected>60</option>
+        </select></label
+      >
+      <label><input id="noRhythmExtras" type="checkbox" /> без beatStrength/sections</label>
+    </fieldset>
+    <fieldset>
+      <button id="play">⏸ Пауза</button>
+      <button id="prevAccent">⏮ акцент</button>
+      <button id="nextAccent">акцент ⏭</button>
+      <input id="scrub" type="range" min="0" value="0" />
+      <button id="determinism">Проверить детерминизм</button>
+      <button id="worker">Кадр в воркере</button>
+    </fieldset>
+    <p id="stats"></p>
+    <div id="main">
+      <canvas id="canvas"></canvas>
+      <div id="side">
+        <h4>Эффекты сцены</h4>
+        <div id="sceneEffects"></div>
+        <h4 id="paramsTitle">Параметры акцента</h4>
+        <div id="accentParams"></div>
+        <div id="log"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/effects/dev/main.ts"></script>
+  </body>
+</html>

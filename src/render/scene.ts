@@ -3,16 +3,48 @@
  * stack of layers drawn bottom to top. Layer specs may omit any field that has a default.
  */
 
-import { SPECTRUM_BARS_DEFAULTS, type SpectrumBarsSpec } from '@/visualizers'
+import {
+  CORRELATION_DEFAULTS,
+  GONIOMETER_DEFAULTS,
+  LEVEL_METERS_DEFAULTS,
+  OSCILLOSCOPE_DEFAULTS,
+  SPECTROGRAM_DEFAULTS,
+  SPECTRUM_BARS_DEFAULTS,
+  SPECTRUM_CURVE_DEFAULTS,
+  WAVEFORM_DEFAULTS,
+  type CorrelationSpec,
+  type GoniometerSpec,
+  type LevelMetersSpec,
+  type OscilloscopeSpec,
+  type SpectrogramSpec,
+  type SpectrumBarsSpec,
+  type SpectrumCurveSpec,
+  type WaveformSpec,
+} from '@/visualizers'
 import type { EffectSpec } from './effectsHost'
 import type { SafeAreaMode } from './layout'
 import { BACKGROUND_DEFAULTS, type BackgroundSpec } from './layers/background'
+import { KINETIC_DEFAULTS, type KineticSpec } from './layers/kinetic'
 import { LYRICS_DEFAULTS, type LyricsSpec } from './layers/lyrics'
+import { NOISE_DEFAULTS, type NoiseSpec } from './layers/noise'
 import { TEXT_DEFAULTS, type TextSpec } from './layers/text'
 
 export const SCENE_VERSION = 1
 
-export type LayerSpec = BackgroundSpec | SpectrumBarsSpec | TextSpec | LyricsSpec
+export type LayerSpec =
+  | BackgroundSpec
+  | NoiseSpec
+  | SpectrumBarsSpec
+  | SpectrumCurveSpec
+  | SpectrogramSpec
+  | OscilloscopeSpec
+  | GoniometerSpec
+  | LevelMetersSpec
+  | CorrelationSpec
+  | WaveformSpec
+  | TextSpec
+  | LyricsSpec
+  | KineticSpec
 export type LayerType = LayerSpec['type']
 
 export interface Scene {
@@ -45,6 +77,20 @@ const LAYER_DEFAULTS: { [K in LayerType]: object } = {
   'spectrum-bars': SPECTRUM_BARS_DEFAULTS,
   text: { ...TEXT_DEFAULTS, text: '' },
   lyrics: LYRICS_DEFAULTS,
+  noise: NOISE_DEFAULTS,
+  'spectrum-curve': SPECTRUM_CURVE_DEFAULTS,
+  spectrogram: SPECTROGRAM_DEFAULTS,
+  oscilloscope: OSCILLOSCOPE_DEFAULTS,
+  goniometer: GONIOMETER_DEFAULTS,
+  'level-meters': LEVEL_METERS_DEFAULTS,
+  correlation: CORRELATION_DEFAULTS,
+  waveform: WAVEFORM_DEFAULTS,
+  kinetic: KINETIC_DEFAULTS,
+}
+
+/** Defaults of a layer type (for UIs that add layers). */
+export function layerDefaults(type: LayerType): object {
+  return structuredClone(LAYER_DEFAULTS[type])
 }
 
 /**

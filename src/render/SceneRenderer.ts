@@ -109,13 +109,21 @@ export class SceneRenderer implements FrameRenderer {
       })
     const passes = this.effects.flatMap((e) => (e.effect.post ? [e.effect.post] : []))
     if (passes.length > 0) {
-      this.post = new PostChain(passes, Math.round(options.width), Math.round(options.height))
+      this.post = new PostChain(
+        passes,
+        Math.round(options.width),
+        Math.round(options.height),
+        this.options.willReadFrequently ?? false,
+      )
     }
     this.resize(options.width, options.height)
-    if (this.post) {
-      this.post.warmUp(g)
-      g.clearRect(0, 0, this.canvas.width, this.canvas.height)
-    }
+    if (this.post) this.post.warmUp(g)
+    // Warm-up frame. Chrome takes a different path the first time a source (offscreen image,
+    // pattern, GL canvas) is composited, rounding a few levels differently; drawing one throwaway
+    // frame here keeps frame N identical whatever was rendered before it. Also lays out text.
+    this.renderFrame(0)
+    g.setTransform(1, 0, 0, 1, 0, 0)
+    g.clearRect(0, 0, this.canvas.width, this.canvas.height)
   }
 
   resize(width: number, height: number): void {

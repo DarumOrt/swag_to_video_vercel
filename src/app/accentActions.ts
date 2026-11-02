@@ -1,39 +1,32 @@
-import { flattenWords, normalizeWord } from '@/lyrics'
+import {
+  applyToAllOccurrences,
+  flattenWords,
+  normalizeWord,
+  regenerateAuto,
+  removeAccent as removeWordAccent,
+  setAccent,
+  suggestAccents,
+  type AccentOverrides,
+  type AccentStyle,
+} from '@/lyrics'
 import type { Accent, AccentEffectId, Timeline } from '@/shared'
-import { effectInfo, patchTimeline, suggestAccents } from './adapters'
+import { patchTimeline } from './adapters'
 import { playback } from './playback'
 import { useAppStore } from './store'
 
 function commitAccents(update: (accents: Accent[], timeline: Timeline) => Accent[]) {
   const { timeline, setTimeline } = useAppStore.getState()
   if (!timeline) return
-  setTimeline(patchTimeline(timeline, { accents: update(timeline.accents, timeline) }))
-}
-
-function newAccent(wordId: string, effect: AccentEffectId, intensity?: number): Accent {
-  const info = effectInfo(effect)
-  return {
-    id: `user-${wordId}`,
-    wordId,
-    effect,
-    source: 'user',
-    preRollSec: info.preRollSec,
-    durationSec: info.durationSec,
-    intensity: intensity ?? info.intensity,
-    params: {},
-  }
+  const accents = update(timeline.accents, timeline)
+  setTimeline(patchTimeline(timeline, { accents: sortByWordOrder(accents, timeline) }))
 }
 
 /** Replaces auto accents with fresh suggestions; user accents and their words stay untouched. */
-export function regenerateAccents() {
-  commitAccents((accents, timeline) => {
-    if (!timeline.lyrics) return accents
-    const user = accents.filter((accent) => accent.source !== 'auto')
-    const taken = new Set(user.map((accent) => accent.wordId))
-    const suggested = suggestAccents(timeline.lyrics, timeline.audio).filter(
-      (accent) => !taken.has(accent.wordId),
-    )
-    return sortByWordOrder([...user, ...suggested], timeline)
+export function regenerateAccents(style: AccentStyle = 'balanced') {
+  commitAccents((accents, { lyrics, audio }) => {
+    if (!lyrics) return accents
+    const suggestions = suggestAccents(lyrics, audio.rhythm, audio.sections ?? [], { style })
+    return regenerateAuto(accents, suggestions)
   })
 }
 
@@ -47,44 +40,35 @@ export function setWordAccent(
   intensity?: number,
   sameWords = false,
 ) {
-  commitAccents((accents, timeline) => {
-    const words = timeline.lyrics ? flattenWords(timeline.lyrics).map((ref) => ref.word) : []
-    const key = normalizeWord(words.find((word) => word.id === wordId)?.text ?? '')
-    const targets = new Set(
-      sameWords && key
-        ? words.filter((word) => normalizeWord(word.text) === key).map((word) => word.id)
-        : [wordId],
-    )
-    const kept = accents.filter((accent) => !targets.has(accent.wordId))
-    if (!effect) return kept
-    const added = [...targets].map((id) => {
-      const old = accents.find((accent) => accent.wordId === id)
-      // Keep the user's timing and params when only the effect or intensity changes.
-      return old && old.effect === effect
-        ? { ...old, intensity: intensity ?? old.intensity, source: 'user' as const }
-        : newAccent(id, effect, intensity)
-    })
-    return sortByWordOrder([...kept, ...added], timeline)
+  commitAccents((accents, { lyrics }) => {
+    if (!effect) {
+      if (!sameWords || !lyrics) return removeWordAccent(accents, wordId)
+      const words = flattenWords(lyrics).map((ref) => ref.word)
+      const key = normalizeWord(words.find((word) => word.id === wordId)?.text ?? '')
+      const same = new Set(words.filter((w) => normalizeWord(w.text) === key).map((w) => w.id))
+      return accents.filter((accent) => !same.has(accent.wordId))
+    }
+    const own = setAccent(accents, wordId, effect, intensity === undefined ? {} : { intensity })
+    // The other occurrences copy the settings of this word's (just updated) accent.
+    return sameWords && lyrics ? applyToAllOccurrences(lyrics, own, wordId, effect) : own
   })
 }
 
 /** Edits one accent; any edit makes it a user accent (regeneration will keep it). */
-export function updateAccent(id: string, patch: Partial<Omit<Accent, 'id' | 'wordId'>>) {
-  commitAccents((accents) =>
-    accents.map((accent) => {
-      if (accent.id !== id) return accent
-      const next = { ...accent, ...patch, source: 'user' as const }
-      if (patch.effect && patch.effect !== accent.effect) {
-        const info = effectInfo(patch.effect)
-        return { ...next, preRollSec: info.preRollSec, durationSec: info.durationSec, params: {} }
-      }
-      return next
-    }),
-  )
+export function updateAccent(
+  wordId: string,
+  change: AccentOverrides & { effect?: AccentEffectId },
+) {
+  commitAccents((accents) => {
+    const current = accents.find((accent) => accent.wordId === wordId)
+    if (!current) return accents
+    const { effect = current.effect, ...overrides } = change
+    return setAccent(accents, wordId, effect, overrides)
+  })
 }
 
-export function removeAccent(id: string) {
-  commitAccents((accents) => accents.filter((accent) => accent.id !== id))
+export function removeAccent(wordId: string) {
+  commitAccents((accents) => removeWordAccent(accents, wordId))
 }
 
 let stopPreview: (() => void) | null = null
