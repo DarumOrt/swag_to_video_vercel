@@ -22,7 +22,7 @@ export interface WaveformSpec extends LayerSpecBase {
 }
 
 export const WAVEFORM_DEFAULTS: Omit<WaveformSpec, 'id' | 'type'> = {
-  rect: { x: 0, y: 0.9, w: 1, h: 0.08 },
+  rect: { x: 0, y: 0.9, w: 1, h: 0.08, space: 'bleed' },
   spanSec: 0,
   barWidth: 0.006,
   gap: 0.35,

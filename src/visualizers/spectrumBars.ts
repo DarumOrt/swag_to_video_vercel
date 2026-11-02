@@ -32,7 +32,7 @@ export interface SpectrumBarsSpec extends LayerSpecBase {
 }
 
 export const SPECTRUM_BARS_DEFAULTS: Omit<SpectrumBarsSpec, 'id' | 'type'> = {
-  rect: { x: 0, y: 0.55, w: 1, h: 0.25 },
+  rect: { x: 0, y: 0.55, w: 1, h: 0.25, space: 'bleed' },
   barCount: 48,
   gap: 0.3,
   minHz: 30,

@@ -7,6 +7,7 @@
 import type { AudioSection, Timeline } from '@/shared'
 import type { CameraTransform } from './effectsHost'
 import type { Layout, PixelRect, RectSpec } from './layout'
+import type { LayerMotion } from './motion'
 import type { BeatInfo } from './rhythm'
 import type { FrameWords } from './words'
 
@@ -25,6 +26,8 @@ export interface LayerSpecBase {
   opacity?: number
   /** Canvas composite operation, default 'source-over'. */
   blend?: GlobalCompositeOperation
+  /** Beat / section / depth motion applied by the engine around the layer (motion.ts). */
+  motion?: LayerMotion
 }
 
 /** Which audio band drives a reaction, and how strongly. */

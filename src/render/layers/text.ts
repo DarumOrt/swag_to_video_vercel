@@ -28,7 +28,7 @@ export interface TextSpec extends LayerSpecBase {
 export const DEFAULT_FONT_FAMILY = fontStack(FONT_FAMILY.grotesk)
 
 export const TEXT_DEFAULTS: Omit<TextSpec, 'id' | 'type' | 'text'> = {
-  rect: { x: 0, y: 0.08, w: 1, h: 0.2 },
+  rect: { x: 0, y: 0.08, w: 1, h: 0.2, space: 'center' },
   fontFamily: fontStack(FONT_FAMILY.display),
   fontWeight: 800,
   fontSize: 0.075,

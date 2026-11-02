@@ -2,6 +2,8 @@
  * Dev page dev/render.html: realtime preview (requestAnimationFrame → renderFrame(N)),
  * format / fps switch, fps counter, determinism checks (main thread and OffscreenCanvas worker).
  * Wall-clock time is used only here, to pick which frame to show — never inside the renderer.
+ * URL params preset the controls: ?preset=neon&format=1080x1920&fps=30&fx=style|demo|none&frame=N
+ * (frame = paused on that frame)&safe=1.
  */
 
 import { frameCountFor, type FrameRate } from '@/shared'
@@ -24,6 +26,7 @@ const fpsSel = $<HTMLSelectElement>('fps')
 const titleInput = $<HTMLInputElement>('title')
 const safeToggle = $<HTMLInputElement>('safeToggle')
 const fxToggle = $<HTMLInputElement>('fxToggle')
+const styleFxToggle = $<HTMLInputElement>('styleFxToggle')
 const presetSel = $<HTMLSelectElement>('preset')
 const safeBox = $<HTMLDivElement>('safe')
 const playBtn = $<HTMLButtonElement>('play')
@@ -37,6 +40,7 @@ const sceneOptions = (): DevSceneOptions => ({
   preset: presetSel.value,
   title: titleInput.value,
   demoEffects: fxToggle.checked,
+  styleEffects: styleFxToggle.checked,
 })
 
 let width = 1080
@@ -48,6 +52,20 @@ let anchorWall = 0
 let anchorFrame = 0
 let currentFrame = 0
 let lastDrawn = -1
+
+const query = new URLSearchParams(location.search)
+const pick = (sel: HTMLSelectElement, value: string | null) => {
+  if (value && [...sel.options].some((o) => o.value === value)) sel.value = value
+}
+pick(presetSel, query.get('preset'))
+pick(formatSel, query.get('format'))
+pick(fpsSel, query.get('fps'))
+if (query.has('fx')) {
+  const fx = query.get('fx')
+  styleFxToggle.checked = fx === 'style'
+  fxToggle.checked = fx === 'demo'
+}
+safeToggle.checked = query.get('safe') === '1'
 
 // Stats over the last second.
 let statWindowStart = performance.now()
@@ -181,6 +199,7 @@ formatSel.onchange =
   fpsSel.onchange =
   titleInput.onchange =
   fxToggle.onchange =
+  styleFxToggle.onchange =
   presetSel.onchange =
     () => void setup()
 safeToggle.onchange = updateSafeBox
@@ -207,4 +226,10 @@ Object.assign(window, {
 })
 
 await setup()
+if (query.has('frame')) {
+  currentFrame = Math.min(Math.max(Number(query.get('frame')) || 0, 0), frameCount - 1)
+  playing = false
+  playBtn.textContent = '▶ Играть'
+  scrub.value = String(currentFrame)
+}
 requestAnimationFrame(tick)

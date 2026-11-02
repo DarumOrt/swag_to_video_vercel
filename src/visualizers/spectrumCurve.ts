@@ -33,7 +33,7 @@ export interface SpectrumCurveSpec extends LayerSpecBase {
 }
 
 export const SPECTRUM_CURVE_DEFAULTS: Omit<SpectrumCurveSpec, 'id' | 'type'> = {
-  rect: { x: 0, y: 0.55, w: 1, h: 0.25 },
+  rect: { x: 0, y: 0.55, w: 1, h: 0.25, space: 'bleed' },
   style: 'mountain',
   points: 96,
   minHz: 30,

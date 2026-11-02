@@ -24,7 +24,7 @@ export interface SpectrogramSpec extends LayerSpecBase {
 }
 
 export const SPECTROGRAM_DEFAULTS: Omit<SpectrogramSpec, 'id' | 'type'> = {
-  rect: { x: 0, y: 0.55, w: 1, h: 0.3 },
+  rect: { x: 0, y: 0.55, w: 1, h: 0.3, space: 'bleed' },
   historySec: 6,
   minHz: 30,
   maxHz: 16000,

@@ -60,7 +60,7 @@ export const EFFECT_STYLES: Readonly<Record<EffectStyleId, EffectStylePreset>> =
     effects: [
       { type: 'accents', params: { style: 'neon', font: 'display' } },
       { type: 'beat-camera', params: { amount: 0.03 } },
-      { type: 'beat-flash', params: { amount: 0.22, color: '#ff4fd8', threshold: 0.85 } },
+      { type: 'beat-flash', params: { amount: 0.1, color: '#ff4fd8', threshold: 0.85 } },
       // Text must stay readable at the beat peak: strength × (1 + beatPulse) stays near 1.
       { type: 'bloom', params: { strength: 0.8, threshold: 0.6, radius: 0.6, beatPulse: 0.35 } },
       { type: 'chromatic-aberration', params: { amount: 0.0025, beatPulse: 0.002 } },

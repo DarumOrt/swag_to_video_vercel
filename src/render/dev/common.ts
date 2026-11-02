@@ -1,9 +1,9 @@
 /** Shared helpers for the render dev page and its worker. Dev-only. */
 
 import * as effectsModule from '@/effects'
-import type { EffectFactory } from '../effectsHost'
+import type { EffectFactory, EffectSpec } from '../effectsHost'
 import type { SceneInput } from '../scene'
-import { buildPresetScene } from '../styles/presets'
+import { buildPresetScene, getStylePreset } from '../styles/presets'
 import { createSampleEffect, SAMPLE_EFFECTS } from './sampleEffects'
 
 export const DEV_DURATION_SEC = 32
@@ -14,11 +14,17 @@ export interface DevSceneOptions {
   title: string
   /** Add the sample effects from sampleEffects.ts. */
   demoEffects: boolean
+  /** Add the preset's effect style from `@/effects` (camera, bloom, flashes...), as in the app. */
+  styleEffects?: boolean
 }
 
 export function devScene(o: DevSceneOptions): SceneInput {
-  const effects = o.demoEffects ? SAMPLE_EFFECTS : []
-  if (o.preset !== 'default') return { ...buildPresetScene(o.preset, { title: o.title }), effects }
+  const effects = o.demoEffects ? [...SAMPLE_EFFECTS] : []
+  if (o.preset !== 'default') {
+    const styleFx = (effectsModule as { styleEffects?: (id: string) => EffectSpec[] }).styleEffects
+    if (o.styleEffects && styleFx) effects.push(...styleFx(getStylePreset(o.preset).effectStyle))
+    return { ...buildPresetScene(o.preset, { title: o.title }), effects }
+  }
   return {
     seed: 7,
     layers: [

@@ -25,9 +25,11 @@ export {
   safeAreaInsets,
   type Layout,
   type PixelRect,
+  type RectSpace,
   type RectSpec,
   type SafeAreaMode,
 } from './layout'
+export { layerMotionAt, sectionLevel, type LayerMotion, type MotionState } from './motion'
 export type { BandReaction, Ctx2D, FrameContext, Layer, LayerSpecBase } from './types'
 export { emptyFrameWords, type FrameWords, type WordBox, type WordPlacement } from './words'
 

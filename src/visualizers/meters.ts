@@ -30,7 +30,7 @@ export interface LevelMetersSpec extends LayerSpecBase {
 }
 
 export const LEVEL_METERS_DEFAULTS: Omit<LevelMetersSpec, 'id' | 'type'> = {
-  rect: { x: 0.1, y: 0.55, w: 0.8, h: 0.25 },
+  rect: { x: 0.1, y: 0.55, w: 0.8, h: 0.25, space: 'center' },
   orientation: 'vertical',
   minDb: -60,
   holdSec: 1.5,
@@ -197,7 +197,7 @@ export interface CorrelationSpec extends LayerSpecBase {
 }
 
 export const CORRELATION_DEFAULTS: Omit<CorrelationSpec, 'id' | 'type'> = {
-  rect: { x: 0.1, y: 0.82, w: 0.8, h: 0.03 },
+  rect: { x: 0.1, y: 0.82, w: 0.8, h: 0.03, space: 'center' },
   smoothingSec: 0.3,
   negativeColor: '#ef4444',
   positiveColor: '#22c55e',

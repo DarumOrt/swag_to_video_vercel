@@ -17,9 +17,18 @@ export interface RectSpec {
   y: number
   w: number
   h: number
-  /** 'safe' = relative to the safe area (default), 'frame' = relative to the whole frame. */
-  space?: 'safe' | 'frame'
+  /**
+   * - 'safe' (default) — the safe area as is (in portrait it is asymmetric: the action column on
+   *   the right is wider than the left margin, so its center is left of the frame center);
+   * - 'center' — the safe area made symmetric around the vertical center line (left and right
+   *   insets = the larger of the two): use for anything meant to be centered;
+   * - 'bleed' — full frame width × safe-area height: edge-to-edge visualizers;
+   * - 'frame' — the whole frame.
+   */
+  space?: RectSpace
 }
+
+export type RectSpace = 'safe' | 'center' | 'bleed' | 'frame'
 
 export type SafeAreaMode = 'social' | 'none'
 
@@ -37,6 +46,10 @@ export interface Layout {
   unit: number
   frame: PixelRect
   safe: PixelRect
+  /** Safe area, horizontally symmetric around the frame center. */
+  center: PixelRect
+  /** Full width, safe-area height. */
+  bleed: PixelRect
 }
 
 /**
@@ -52,6 +65,9 @@ export function safeAreaInsets(width: number, height: number, mode: SafeAreaMode
 
 export function computeLayout(width: number, height: number, mode: SafeAreaMode): Layout {
   const i = safeAreaInsets(width, height, mode)
+  const side = Math.max(i.left, i.right)
+  const y = i.top * height
+  const h = (1 - i.top - i.bottom) * height
   return {
     width,
     height,
@@ -59,15 +75,17 @@ export function computeLayout(width: number, height: number, mode: SafeAreaMode)
     frame: { x: 0, y: 0, w: width, h: height },
     safe: {
       x: i.left * width,
-      y: i.top * height,
+      y,
       w: (1 - i.left - i.right) * width,
-      h: (1 - i.top - i.bottom) * height,
+      h,
     },
+    center: { x: side * width, y, w: (1 - 2 * side) * width, h },
+    bleed: { x: 0, y, w: width, h },
   }
 }
 
 export function resolveRect(spec: RectSpec, layout: Layout): PixelRect {
-  const base = spec.space === 'frame' ? layout.frame : layout.safe
+  const base = layout[spec.space ?? 'safe']
   return {
     x: base.x + spec.x * base.w,
     y: base.y + spec.y * base.h,

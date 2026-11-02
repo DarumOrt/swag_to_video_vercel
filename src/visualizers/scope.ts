@@ -26,7 +26,7 @@ export interface OscilloscopeSpec extends LayerSpecBase {
 }
 
 export const OSCILLOSCOPE_DEFAULTS: Omit<OscilloscopeSpec, 'id' | 'type'> = {
-  rect: { x: 0, y: 0.6, w: 1, h: 0.18 },
+  rect: { x: 0, y: 0.6, w: 1, h: 0.18, space: 'bleed' },
   channel: 'mid',
   color: '#a7f3d0',
   color2: '#f9a8d4',
@@ -101,7 +101,7 @@ export interface GoniometerSpec extends LayerSpecBase {
 }
 
 export const GONIOMETER_DEFAULTS: Omit<GoniometerSpec, 'id' | 'type'> = {
-  rect: { x: 0.25, y: 0.5, w: 0.5, h: 0.3 },
+  rect: { x: 0.25, y: 0.5, w: 0.5, h: 0.3, space: 'center' },
   style: 'dots',
   color: '#bef264',
   size: 0.005,

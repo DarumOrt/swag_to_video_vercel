@@ -54,7 +54,7 @@ export interface KineticSpec extends LayerSpecBase {
 }
 
 export const KINETIC_DEFAULTS: Omit<KineticSpec, 'id' | 'type'> = {
-  rect: { x: 0, y: 0.15, w: 1, h: 0.5 },
+  rect: { x: 0, y: 0.15, w: 1, h: 0.5, space: 'center' },
   mode: 'flow',
   fontFamily: fontStack(FONT_FAMILY.grotesk),
   weightMin: 300,

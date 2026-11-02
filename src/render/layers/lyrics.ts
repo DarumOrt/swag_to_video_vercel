@@ -51,7 +51,7 @@ export interface LyricsSpec extends LayerSpecBase {
 }
 
 export const LYRICS_DEFAULTS: Omit<LyricsSpec, 'id' | 'type'> = {
-  rect: { x: 0, y: 0.27, w: 1, h: 0.26 },
+  rect: { x: 0, y: 0.27, w: 1, h: 0.26, space: 'center' },
   fontFamily: fontStack(FONT_FAMILY.grotesk),
   fontWeight: 800,
   fontSize: 0.075,

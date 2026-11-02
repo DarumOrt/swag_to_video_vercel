@@ -16,6 +16,7 @@ import {
 } from './effectsHost'
 import { embeddedFamiliesIn, loadEmbeddedFonts } from './fonts'
 import { computeLayout, resolveRect, type Layout } from './layout'
+import { cameraAtDepth, layerMotionAt, type LayerMotion } from './motion'
 import { PostChain } from './post'
 import { createRng, hash32 } from './random'
 import { createLayer } from './registry'
@@ -31,6 +32,7 @@ interface LayerEntry {
   opacity: number
   blend: GlobalCompositeOperation
   camera: boolean
+  motion: LayerMotion | null
   seed: number
 }
 
@@ -110,6 +112,7 @@ export class SceneRenderer implements FrameRenderer {
         opacity: spec.opacity ?? 1,
         blend: spec.blend ?? 'source-over',
         camera: spec.camera ?? spec.type !== 'background',
+        motion: spec.motion ?? null,
         seed: hash32(scene.seed, spec.id),
       }))
 
@@ -180,11 +183,23 @@ export class SceneRenderer implements FrameRenderer {
     g.clearRect(0, 0, layout.width, layout.height)
     for (const entry of this.layers) {
       if (entry.opacity <= 0) continue
+      let alpha = entry.opacity
+      let cam: CameraTransform | null = entry.camera ? camera : null
+      if (entry.motion) {
+        const m = entry.motion
+        const state = layerMotionAt(m, timeline, time, base.beat)
+        alpha = Math.min(alpha * state.alpha, 1)
+        if (alpha <= 0) continue
+        if (cam && m.depth !== undefined) cam = cameraAtDepth(cam, m.depth)
+        if (state.scale !== 1) {
+          cam = scaleCamera(cam ?? IDENTITY_CAMERA, state.scale, m.origin ?? [0.5, 0.5], layout)
+        }
+      }
       g.save()
-      g.globalAlpha = entry.opacity
+      g.globalAlpha = alpha
       g.globalCompositeOperation = entry.blend
-      if (entry.camera) applyCamera(g, camera, layout.width, layout.height, layout.unit)
-      const scoped = words.scope(entry.id, entry.camera ? camera : null)
+      if (cam) applyCamera(g, cam, layout.width, layout.height, layout.unit)
+      const scoped = words.scope(entry.id, cam)
       entry.layer.draw(g, { ...base, seed: entry.seed, words: scoped })
       g.restore()
     }
@@ -211,6 +226,28 @@ export class SceneRenderer implements FrameRenderer {
     this.timeline = null
     this.scene = null
     this.layout = null
+  }
+}
+
+/**
+ * Camera followed by a scale `s` around `origin` (frame fractions), as one camera transform, so
+ * word boxes (words.scope) see exactly what is drawn.
+ */
+function scaleCamera(
+  c: Readonly<CameraTransform>,
+  s: number,
+  origin: [number, number],
+  layout: Layout,
+): CameraTransform {
+  const cx = layout.width / 2
+  const cy = layout.height / 2
+  const ox = origin[0] * layout.width
+  const oy = origin[1] * layout.height
+  return {
+    zoom: c.zoom * s,
+    rotation: c.rotation,
+    x: ((ox - cx) * (1 - s)) / layout.unit + s * c.x,
+    y: ((oy - cy) * (1 - s)) / layout.unit + s * c.y,
   }
 }
 
