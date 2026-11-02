@@ -1,10 +1,13 @@
 /**
- * Layer contract of the render engine. Visualizers and effects implement `Layer` and import these
- * types with `import type` only — runtime helpers reach them through `FrameContext`.
+ * Layer contract of the render engine. Visualizers implement `Layer`, effects implement `Effect`
+ * (effectsHost.ts); both import these types with `import type` only — runtime helpers reach them
+ * through `FrameContext`.
  */
 
-import type { Timeline } from '@/shared'
+import type { AudioSection, Timeline } from '@/shared'
+import type { CameraTransform } from './effectsHost'
 import type { Layout, PixelRect, RectSpec } from './layout'
+import type { BeatInfo } from './rhythm'
 
 export type Ctx2D = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
@@ -15,6 +18,8 @@ export interface LayerSpecBase {
   type: string
   /** Default true. */
   enabled?: boolean
+  /** Follow the effects camera (zoom, shake...). Default true; backgrounds default to false. */
+  camera?: boolean
   /** 0..1, default 1. */
   opacity?: number
   /** Canvas composite operation, default 'source-over'. */
@@ -32,14 +37,24 @@ export interface BandReaction {
 export interface FrameContext {
   frameIndex: number
   fps: number
-  /** frameIndex / fps, seconds. */
+  /** Frame time in seconds after time warps (slow motion); equals `baseTime` without them. */
   time: number
+  /** frameIndex / fps, seconds, before any time warp. */
+  baseTime: number
   /** Fractional position on the feature grid (see `featurePosition`). */
   featurePos: number
   timeline: Timeline
   layout: Layout
-  /** Scene seed mixed with the layer id. */
+  /** Scene seed mixed with the layer (or effect) id. */
   seed: number
+  /** Camera for this frame, after all effects contributed. Layers get it already applied. */
+  camera: Readonly<CameraTransform>
+  /** Beat at `time` (index, phase, strength...). */
+  beat: BeatInfo
+  /** Energy section at `time`, null when the analysis has none. */
+  section: AudioSection | null
+  /** Seeded RNG for this frame: same (seed, frame, salt) → same sequence. */
+  rng(salt?: string | number): () => number
   /** Feature series value at the current frame (linear interpolation). */
   sample(series: ArrayLike<number>): number
   /** Band energy 0..1 at the current frame. */

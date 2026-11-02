@@ -59,6 +59,23 @@ export {
 } from './align'
 export { DEFAULT_SNAP, nearestOnset, snapToOnsets, type SnapOptions } from './snap'
 export { editWord, retimeFrom, shiftLine, type RetimeResult, type WordEdit } from './edit'
+export {
+  ACCENT_STYLES,
+  DEFAULT_SUGGEST,
+  EFFECT_DEFAULTS,
+  STRONG_EFFECTS,
+  applyToAllOccurrences,
+  hookScores,
+  regenerateAuto,
+  removeAccent,
+  setAccent,
+  suggestAccents,
+  type AccentOverrides,
+  type AccentReason,
+  type AccentStyle,
+  type AccentSuggestion,
+  type SuggestOptions,
+} from './accents'
 export { MAX_SPELLED_NUMBER, spellNumber, type NumberLanguage } from './numbers'
 export {
   applyTaps,

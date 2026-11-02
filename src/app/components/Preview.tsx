@@ -41,6 +41,7 @@ function PreviewCanvas() {
   const timeline = useAppStore((state) => state.timeline)
   const status = useAppStore((state) => state.analysis.status)
   const { width, height, fps } = useAppStore((state) => state.output)
+  const scene = useAppStore((state) => state.scene)
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -69,7 +70,7 @@ function PreviewCanvas() {
 
     const { w, h } = backingSize()
     let unsubscribe = () => {}
-    void renderer.init({ canvas, width: w, height: h, fps, timeline, scene: null }).then(() => {
+    void renderer.init({ canvas, width: w, height: h, fps, timeline, scene }).then(() => {
       if (disposed) return
       ready = true
       unsubscribe = playback.subscribe(draw)
@@ -81,7 +82,7 @@ function PreviewCanvas() {
       unsubscribe()
       renderer.dispose()
     }
-  }, [timeline, width, height, fps])
+  }, [timeline, scene, width, height, fps])
 
   return (
     <>

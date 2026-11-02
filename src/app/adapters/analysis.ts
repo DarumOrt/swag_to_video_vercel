@@ -10,12 +10,22 @@ export function pcmFor(timeline: Timeline): DecodedAudio | undefined {
   return pcmByTimeline.get(timeline)
 }
 
-/** New timeline with other lyrics; keeps the PCM link so export still has the audio. */
-export function withLyrics(timeline: Timeline, lyrics: Lyrics | null): Timeline {
-  const next: Timeline = { ...timeline, lyrics }
+/** New timeline with other lyrics/accents; keeps the PCM link so export still has the audio. */
+export function patchTimeline(
+  timeline: Timeline,
+  patch: Partial<Pick<Timeline, 'lyrics' | 'accents'>>,
+): Timeline {
+  const next: Timeline = { ...timeline, ...patch }
   const pcm = pcmByTimeline.get(timeline)
   if (pcm) pcmByTimeline.set(next, pcm)
   return next
+}
+
+/** New lyrics; accents on words that no longer exist are dropped. */
+export function withLyrics(timeline: Timeline, lyrics: Lyrics | null): Timeline {
+  const ids = new Set(lyrics?.lines.flatMap((line) => line.words.map((word) => word.id)))
+  const accents = timeline.accents.filter((accent) => ids.has(accent.wordId))
+  return patchTimeline(timeline, { lyrics, accents })
 }
 
 export async function analyzeTrack(

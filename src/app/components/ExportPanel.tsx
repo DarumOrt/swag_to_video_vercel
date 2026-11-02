@@ -1,12 +1,13 @@
 import { CircleCheck, Download, X } from 'lucide-react'
 import { Button, cn } from '@/ui'
 import { cancelExport, startExport } from '../actions'
+import { formatTime } from '../format'
 import { t } from '../i18n'
 import { useAppStore } from '../store'
 
 export function ExportPanel() {
   const ready = useAppStore((state) => state.timeline !== null)
-  const { status, progress, error } = useAppStore((state) => state.export)
+  const { status, progress, etaSec, error } = useAppStore((state) => state.export)
   const percent = Math.round(progress * 100)
 
   return (
@@ -18,7 +19,10 @@ export function ExportPanel() {
         <>
           <div className="flex items-baseline justify-between text-xs">
             <span className="text-fg">{t.export.running(percent)}</span>
-            <span className="tabular font-mono text-subtle">{percent}%</span>
+            <span className="tabular font-mono text-subtle">
+              {etaSec !== null && `${t.export.eta(formatTime(etaSec))} · `}
+              {percent}%
+            </span>
           </div>
           <div
             role="progressbar"

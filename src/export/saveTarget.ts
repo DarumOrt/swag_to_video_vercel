@@ -18,7 +18,11 @@ export interface SaveTarget {
   file: FileSystemFileHandle | null
   /** Display name of the output file. */
   name: string
-  /** Removes the OPFS copy once its download has started (no-op for other kinds). */
+  /**
+   * `opfs`: removes the OPFS copy. `file`: after a failed or cancelled export, removes the empty
+   * file the picker created (only if it is still 0 bytes, so a user's existing file is never lost).
+   * `memory`: no-op.
+   */
   cleanup(): Promise<void>
 }
 
@@ -43,6 +47,16 @@ export function hasOpfs(): boolean {
 export function exportFileName(baseName: string, container: VideoContainer): string {
   const clean = baseName.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'video'
   return `${clean}.${container}`
+}
+
+/** `FileSystemHandle.remove()` — Chrome/Edge 110+, not in the TS DOM lib yet. */
+async function removeIfEmpty(file: FileSystemFileHandle): Promise<void> {
+  try {
+    if ((await file.getFile()).size > 0) return
+    await (file as FileSystemFileHandle & { remove?: () => Promise<void> }).remove?.()
+  } catch {
+    // Permission revoked or file already gone — nothing to clean.
+  }
 }
 
 const OPFS_DIR = 'exports'
@@ -87,7 +101,7 @@ export async function pickSaveTarget(
         },
       ],
     })
-    return { kind: 'file', file, name: file.name, cleanup: async () => {} }
+    return { kind: 'file', file, name: file.name, cleanup: () => removeIfEmpty(file) }
   }
   if (prefer !== 'memory' && hasOpfs()) {
     try {

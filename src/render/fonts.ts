@@ -8,6 +8,7 @@ export const FONT_FAMILY = {
   grotesk: 'STV Inter',
   display: 'STV Unbounded',
   condensed: 'STV Oswald',
+  mono: 'STV JetBrains Mono',
 } as const
 
 const LATIN =
@@ -64,6 +65,20 @@ export const EMBEDDED_FONTS: EmbeddedFont[] = [
       },
       {
         url: new URL('./fonts/oswald-cyrillic-wght.woff2', import.meta.url).href,
+        unicodeRange: CYRILLIC,
+      },
+    ],
+  },
+  {
+    family: FONT_FAMILY.mono,
+    weight: '100 800',
+    files: [
+      {
+        url: new URL('./fonts/jetbrains-mono-latin-wght.woff2', import.meta.url).href,
+        unicodeRange: LATIN,
+      },
+      {
+        url: new URL('./fonts/jetbrains-mono-cyrillic-wght.woff2', import.meta.url).href,
         unicodeRange: CYRILLIC,
       },
     ],

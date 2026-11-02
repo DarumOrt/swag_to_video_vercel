@@ -7,6 +7,7 @@
 import {
   TIMELINE_SCHEMA_VERSION,
   type Accent,
+  type AudioSection,
   type LyricLine,
   type Timeline,
   type TimeRange,
@@ -21,6 +22,8 @@ export interface FakeTimelineOptions {
   featureRate?: number
   binCount?: number
   withLyrics?: boolean
+  /** Points per frame of the oscilloscope snapshot (`features.scope`); 0 = omit scope. */
+  scopePoints?: number
 }
 
 const MIN_HZ = 20
@@ -50,14 +53,19 @@ export function createFakeTimeline(options: FakeTimelineOptions = {}): Timeline 
   const correlation = new Float32Array(frameCount)
   const width = new Float32Array(frameCount)
 
+  const scopePoints = options.scopePoints ?? 128
+  const scopeWindow = 0.025
+  const scopeL = new Float32Array(scopePoints > 0 ? frameCount * scopePoints : 0)
+  const scopeR = new Float32Array(scopeL.length)
+  const sections = fakeSections(durationSec)
+
   const binHz = Array.from({ length: binCount }, (_, b) =>
     binCount > 1 ? MIN_HZ * Math.pow(MAX_HZ / MIN_HZ, b / (binCount - 1)) : MIN_HZ,
   )
 
   for (let f = 0; f < frameCount; f++) {
     const t = f / rate
-    // Slow 16-second energy swell, quiet first two bars.
-    const energy = (t < beatSec * 8 ? 0.55 : 1) * (0.75 + 0.25 * Math.sin((2 * Math.PI * t) / 16))
+    const energy = sectionEnergy(sections, t)
 
     const sinceBeat = t % beatSec
     const beatIndex = Math.floor(t / beatSec)
@@ -92,13 +100,32 @@ export function createFakeTimeline(options: FakeTimelineOptions = {}): Timeline 
     rms[f] = clamp01(0.15 + 0.6 * loud + 0.15 * kick * energy)
     peak[f] = clamp01((rms[f] ?? 0) * 1.35 + 0.1 * kick)
     lufs[f] = -24 + 12 * energy
-    correlation[f] = 0.55 + 0.35 * Math.sin(t * 0.5)
+    const corr = 0.55 + 0.35 * Math.sin(t * 0.5)
+    correlation[f] = corr
     width[f] = clamp01(0.35 + 0.25 * Math.sin(t * 0.31))
+
+    // Waveform snapshot ending at t: kick sine, melody tone, hat noise; R partly decorrelated.
+    for (let k = 0; k < scopePoints; k++) {
+      const ts = t - scopeWindow + (k / Math.max(scopePoints - 1, 1)) * scopeWindow
+      const kickEnv = Math.exp(-(((ts % beatSec) + beatSec) % beatSec) / 0.11)
+      const body =
+        0.55 * energy * kickEnv * Math.sin(2 * Math.PI * 55 * ts) +
+        0.25 * energy * Math.sin(2 * Math.PI * melodyHz * ts)
+      const noise = 0.12 * energy * hat * (rng() * 2 - 1)
+      const side = 0.3 * energy * Math.sin(2 * Math.PI * melodyHz * 1.5 * ts + 1.3)
+      const l = body + noise + side * (1 - corr)
+      const r = body - noise * 0.5 - side * (1 - corr)
+      scopeL[f * scopePoints + k] = Math.max(-1, Math.min(1, l))
+      scopeR[f * scopePoints + k] = Math.max(-1, Math.min(1, r))
+    }
   }
 
   const beats: number[] = []
   for (let b = 0; b * beatSec < durationSec; b++) beats.push(b * beatSec)
   const downbeats = beats.filter((_, i) => i % 4 === 0)
+  const beatStrength = Float32Array.from(beats, (bt, i) =>
+    clamp01((i % 4 === 0 ? 1 : i % 4 === 2 ? 0.75 : 0.55) * sectionEnergy(sections, bt)),
+  )
   const onsets: number[] = []
   for (let h = 0; (h * beatSec) / 2 < durationSec; h++) onsets.push((h * beatSec) / 2)
 
@@ -122,6 +149,16 @@ export function createFakeTimeline(options: FakeTimelineOptions = {}): Timeline 
         lufsShortTerm: lufs,
         bands: { low, mid, high },
         stereo: { correlation, width },
+        ...(scopePoints > 0
+          ? {
+              scope: {
+                pointsPerFrame: scopePoints,
+                windowSec: scopeWindow,
+                left: scopeL,
+                right: scopeR,
+              },
+            }
+          : {}),
       },
       rhythm: {
         bpm,
@@ -129,8 +166,10 @@ export function createFakeTimeline(options: FakeTimelineOptions = {}): Timeline 
         downbeats: Float32Array.from(downbeats),
         onsets: Float32Array.from(onsets),
         vocalOnsets: Float32Array.from(lines.flatMap((l) => l.words.map((w) => w.start ?? 0))),
+        beatStrength,
       },
       vocalActivity: vocal,
+      sections,
     },
     lyrics: lines.length > 0 ? { language: 'mixed', lines } : null,
     accents,
@@ -175,6 +214,29 @@ function fakeLyrics(
   const last = lines.at(-1)?.words.at(-1)?.end
   const vocal = first != null && last != null ? [{ start: first, end: last }] : []
   return { lines, accents, vocal }
+}
+
+/** Intro (quiet, 4 s), then repeating build (4 s) → drop (8 s), ending in a quiet outro if long enough. */
+function fakeSections(durationSec: number): AudioSection[] {
+  const out: AudioSection[] = []
+  const push = (kind: AudioSection['kind'], start: number, end: number, energy: number) => {
+    if (start < durationSec) out.push({ kind, start, end: Math.min(end, durationSec), energy })
+  }
+  push('quiet', 0, 4, 0.35)
+  for (let t = 4; t < durationSec; t += 12) {
+    push('build', t, t + 4, 0.65)
+    push('drop', t + 4, t + 12, 1)
+  }
+  return out
+}
+
+/** Energy envelope following the sections; builds ramp up towards the drop. */
+function sectionEnergy(sections: AudioSection[], t: number): number {
+  const s = [...sections].reverse().find((x) => x.start <= t) ?? sections[0]
+  if (!s) return 1
+  if (s.kind === 'quiet') return 0.5
+  if (s.kind === 'build') return 0.6 + 0.3 * ((t - s.start) / Math.max(s.end - s.start, 1e-3))
+  return 1
 }
 
 function bump(hz: number, centerHz: number, octaves: number): number {

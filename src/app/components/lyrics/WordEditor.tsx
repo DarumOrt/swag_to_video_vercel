@@ -6,6 +6,7 @@ import { formatTimeInput, parseTimeInput } from '../../format'
 import { t } from '../../i18n'
 import { removeWord, selectWord, updateWord } from '../../lyricsActions'
 import { playback } from '../../playback'
+import { WordAccentPicker } from '../accents/WordAccentPicker'
 
 /** Edits one word: text, start and end. Saving marks the timing as 'manual'. Keyed by word id. */
 export function WordEditor({ word }: { word: LyricWord }) {
@@ -147,6 +148,7 @@ export function WordEditor({ word }: { word: LyricWord }) {
           <Trash2 />
         </Button>
       </div>
+      <WordAccentPicker word={word} />
     </form>
   )
 }

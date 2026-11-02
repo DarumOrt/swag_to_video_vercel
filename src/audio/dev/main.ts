@@ -3,7 +3,7 @@
  * `?src=/test-media/<file>` loads a track without the file picker.
  */
 import { analyzeAudio, LUFS_FLOOR, type AnalyzeAudioResult, type DecodedAudio } from '@/audio'
-import { featureIndexAt, type AudioAnalysis } from '@/shared'
+import { featureIndexAt, type AudioAnalysis, type SectionKind } from '@/shared'
 import { analyzePcmDetailed, type AnalysisInternals } from '../analyze'
 import { percentile } from '../util'
 import { MIX_HARMONIC_RATIO_MIN_DB, movingAverage, VOCAL_BAND_HZ } from '../vocal'
@@ -22,9 +22,18 @@ const audio = $<HTMLAudioElement>('audio')
 const overview = $<HTMLCanvasElement>('overview')
 const zoomView = $<HTMLCanvasElement>('zoomView')
 const live = $<HTMLCanvasElement>('live')
+const scopeView = $<HTMLCanvasElement>('scopeView')
 const overviewCtx = overview.getContext('2d')!
 const zoomCtx = zoomView.getContext('2d')!
 const liveCtx = live.getContext('2d')!
+const scopeCtx = scopeView.getContext('2d')!
+
+const SECTION_COLORS: Record<SectionKind, string> = {
+  quiet: '#64748b',
+  normal: '#38bdf8',
+  build: '#f59e0b',
+  drop: '#ef4444',
+}
 
 let controller: AbortController | null = null
 let current: AnalyzeAudioResult | null = null
@@ -118,7 +127,13 @@ function showSummary(result: AnalyzeAudioResult, totalMs: number, marks: string[
     `${a.durationSec.toFixed(1)} с · ${a.sampleRate} Гц · ${a.channelCount} кан. · кадров ${a.features.frameCount} @ ${a.features.rate}`,
     `BPM ${r.bpm ?? '—'} · битов ${r.beats.length} · даунбитов ${r.downbeats.length} · onsets ${r.onsets.length} (${(r.onsets.length / d).toFixed(1)}/с) · vocal onsets ${r.vocalOnsets.length} (${(r.vocalOnsets.length / d).toFixed(1)}/с) · вокал ${Math.round(vocal * 100)}% в ${a.vocalActivity.length} участках`,
     `время ${totalMs} мс (${marks.join(', ')})${result.mono16k ? ` · 16 кГц: ${result.mono16k.length} сэмплов` : ''}`,
+    `секции: ${(a.sections ?? []).map((s) => `${formatTime(s.start)}–${formatTime(s.end)} ${s.kind} (${s.energy.toFixed(2)})`).join(' · ')}`,
   ].join('\n')
+}
+
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60)
+  return `${m}:${(sec - m * 60).toFixed(1).padStart(4, '0')}`
 }
 
 function sameAnalysis(a: AudioAnalysis, b: AudioAnalysis): boolean {
@@ -227,6 +242,77 @@ function nearDistance(times: Float32Array, t: number): number {
   return Math.min(a, b)
 }
 
+/** Section strip with kind colors and energy as opacity, plus labels when wide enough. */
+function drawSections(
+  ctx: CanvasRenderingContext2D,
+  a: AudioAnalysis,
+  toX: (t: number) => number,
+  y: number,
+  h: number,
+) {
+  ctx.font = '10px system-ui'
+  for (const s of a.sections ?? []) {
+    const x0 = toX(s.start)
+    const x1 = toX(s.end)
+    ctx.globalAlpha = 0.45 + 0.55 * s.energy
+    ctx.fillStyle = SECTION_COLORS[s.kind]
+    ctx.fillRect(x0, y, x1 - x0 - 1, h)
+    ctx.globalAlpha = 1
+    if (x1 - x0 > 40) {
+      ctx.fillStyle = '#000'
+      ctx.fillText(s.kind, Math.max(x0, 0) + 3, y + h - 2)
+    }
+  }
+}
+
+/** Oscilloscope (L and R over the window) and goniometer (M up, S sideways) from `scope`. */
+function drawScope(a: AudioAnalysis, t: number) {
+  const ctx = scopeCtx
+  const { width, height } = scopeView
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, width, height)
+  const scope = a.features.scope
+  if (!scope || a.features.frameCount === 0) return
+  const n = scope.pointsPerFrame
+  const row = featureIndexAt(a.features, t) * n
+  const oscWidth = width - height
+  const mid = height / 2
+  const trace = (values: Float32Array, color: string) => {
+    ctx.strokeStyle = color
+    ctx.beginPath()
+    for (let p = 0; p < n; p++) {
+      const x = (p / (n - 1)) * (oscWidth - 10)
+      const y = mid - values[row + p]! * mid * 0.95
+      if (p === 0) ctx.moveTo(x, y)
+      else ctx.lineTo(x, y)
+    }
+    ctx.stroke()
+  }
+  ctx.lineWidth = 1.5
+  trace(scope.left, '#4ade80')
+  trace(scope.right, 'rgba(96, 165, 250, 0.8)')
+
+  const cx = oscWidth + height / 2
+  ctx.strokeStyle = '#333'
+  ctx.strokeRect(oscWidth, 0, height, height)
+  ctx.fillStyle = '#fde047'
+  for (let p = 0; p < n; p++) {
+    const l = scope.left[row + p]!
+    const r = scope.right[row + p]!
+    // 45° rotation: mono content is vertical, side content horizontal.
+    const x = cx + ((r - l) / Math.SQRT2) * mid * 0.95
+    const y = mid - ((l + r) / Math.SQRT2) * mid * 0.95
+    ctx.fillRect(x, y, 2, 2)
+  }
+  ctx.fillStyle = '#9cf'
+  ctx.font = '11px system-ui'
+  ctx.fillText(
+    `scope ${n} точек / ${Math.round(scope.windowSec * 1000)} мс · L зелёный, R синий`,
+    6,
+    14,
+  )
+}
+
 // Layout of the overview canvas (y ranges).
 const SPEC = { top: 0, height: 240 }
 const LANES = { top: 250, height: 200 }
@@ -243,6 +329,7 @@ async function drawOverview(a: AudioAnalysis) {
 
   ctx.imageSmoothingEnabled = true
   ctx.drawImage(specImage, 0, SPEC.top, width, SPEC.height)
+  drawSections(ctx, a, (t) => (t / a.durationSec) * width, SPEC.top, 10)
   const toX = (t: number) => (t / a.durationSec) * width
 
   // Vocal activity over the vocal rows of the spectrogram.
@@ -283,7 +370,11 @@ async function drawOverview(a: AudioAnalysis) {
     ctx.fillStyle = color
     for (const t of times) ctx.fillRect(Math.round(toX(t)), y, 1, h)
   }
-  ticks(a.rhythm.beats, '#f472b6', MARKS.top + 10, 14)
+  ctx.fillStyle = '#f472b6'
+  a.rhythm.beats.forEach((t, k) => {
+    const h = 4 + 14 * (a.rhythm.beatStrength?.[k] ?? 1)
+    ctx.fillRect(Math.round(toX(t)), MARKS.top + 24 - h, 1, h)
+  })
   ticks(a.rhythm.downbeats, '#f472b6', MARKS.top + 8, 18)
   ticks(a.rhythm.onsets, '#fb923c', MARKS.top + 30, 12)
   ticks(a.rhythm.vocalOnsets, '#22d3ee', MARKS.top + 45, 12)
@@ -337,8 +428,21 @@ function drawZoom(a: AudioAnalysis, t: number) {
   }
   lines(a.rhythm.onsets, 'rgba(251, 146, 60, 0.55)', ZOOM_SPEC.top, vocalTop)
   lines(a.rhythm.vocalOnsets, 'rgba(34, 211, 238, 0.9)', vocalTop, vocalBottom, 2)
-  lines(a.rhythm.beats, '#f472b6', ZOOM_SPEC.top, ZOOM_SPEC.top + 10, 2)
-  lines(a.rhythm.downbeats, '#f472b6', ZOOM_SPEC.top, ZOOM_SPEC.top + 22, 3)
+  // Beats: length = strength; downbeats thicker.
+  const downbeats = new Set(a.rhythm.downbeats)
+  for (let k = firstIndexAtOrAfter(a.rhythm.beats, from); k < a.rhythm.beats.length; k++) {
+    const time = a.rhythm.beats[k]!
+    if (time > from + span) break
+    const strength = a.rhythm.beatStrength?.[k] ?? 1
+    ctx.fillStyle = '#f472b6'
+    ctx.fillRect(
+      Math.round(toX(time)) - 1,
+      ZOOM_SPEC.top + 12,
+      downbeats.has(time) ? 4 : 2,
+      6 + 30 * strength,
+    )
+  }
+  drawSections(ctx, a, toX, ZOOM_SPEC.top, 10)
 
   // Curves.
   const firstFrame = Math.max(0, Math.floor(from * f.rate))
@@ -460,6 +564,7 @@ function drawLive() {
     overviewCtx.fillRect(Math.round(x), 0, 1, overview.height)
   }
   drawZoom(a, t)
+  drawScope(a, t)
 
   const ctx = liveCtx
   const { width, height } = live

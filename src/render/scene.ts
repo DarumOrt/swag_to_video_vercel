@@ -4,6 +4,7 @@
  */
 
 import { SPECTRUM_BARS_DEFAULTS, type SpectrumBarsSpec } from '@/visualizers'
+import type { EffectSpec } from './effectsHost'
 import type { SafeAreaMode } from './layout'
 import { BACKGROUND_DEFAULTS, type BackgroundSpec } from './layers/background'
 import { LYRICS_DEFAULTS, type LyricsSpec } from './layers/lyrics'
@@ -21,6 +22,8 @@ export interface Scene {
   safeArea: SafeAreaMode
   /** Bottom to top. */
   layers: LayerSpec[]
+  /** Effects (camera, overlays, post passes) in application order; created by `@/effects`. */
+  effects: EffectSpec[]
 }
 
 /** Scene as authored: layer fields with defaults are optional. */
@@ -29,6 +32,7 @@ export interface SceneInput {
   seed?: number
   safeArea?: SafeAreaMode
   layers: LayerSpecInput[]
+  effects?: EffectSpec[]
 }
 
 type Partialize<T extends LayerSpec> = T extends LayerSpec
@@ -62,11 +66,20 @@ export function normalizeScene(input: unknown): Scene {
     ids.add(layer.id)
     return { ...structuredClone(defaults), ...layer } as LayerSpec
   })
+  const effectIds = new Set<string>()
+  const effects = (src.effects ?? []).map((e, i) => {
+    if (!e || typeof e.type !== 'string') throw new Error(`Effect at index ${i} has no type`)
+    if (!e.id) throw new Error(`Effect at index ${i} has no id`)
+    if (effectIds.has(e.id)) throw new Error(`Duplicate effect id "${e.id}"`)
+    effectIds.add(e.id)
+    return structuredClone(e)
+  })
   return {
     version: SCENE_VERSION,
     seed: src.seed ?? 1,
     safeArea: src.safeArea ?? 'social',
     layers,
+    effects,
   }
 }
 

@@ -5,12 +5,19 @@
  */
 
 import { mixdown, resample, toPcm, type PcmAudio } from './audio'
-import type { WorkerRequest, WorkerResponse } from './export.worker'
+import type { WorkerRequest, WorkerResponse } from './workerHost'
 import { ExportError, type ExportOptions, type ExportResult } from './exportVideo'
 import { checkExportSupport, outputChannelCount } from './support'
 import type { WorkerExportJob } from './workerProtocol'
 
-export type WorkerExportOptions = Omit<ExportOptions, 'renderer' | 'writable'>
+export interface WorkerExportOptions extends Omit<ExportOptions, 'renderer' | 'writable'> {
+  /** Dev/tests only: a worker that calls `serveExport` with another renderer. Default: SceneRenderer. */
+  createWorker?: () => Worker
+}
+
+function createSceneWorker(): Worker {
+  return new Worker(new URL('./export.worker.ts', import.meta.url), { type: 'module' })
+}
 
 export function canExportInWorker(): boolean {
   return typeof Worker !== 'undefined' && typeof OffscreenCanvas !== 'undefined'
@@ -52,7 +59,7 @@ export async function exportVideoInWorker(options: WorkerExportOptions): Promise
     preferHardware: options.preferHardware,
   }
 
-  const worker = new Worker(new URL('./export.worker.ts', import.meta.url), { type: 'module' })
+  const worker = (options.createWorker ?? createSceneWorker)()
   const send = (message: WorkerRequest) => worker.postMessage(message)
 
   return new Promise<ExportResult>((resolve, reject) => {

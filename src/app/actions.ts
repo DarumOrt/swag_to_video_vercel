@@ -1,4 +1,10 @@
-import { analyzeTrack, createRenderer, exportVideo } from './adapters'
+import {
+  analyzeTrack,
+  chooseSaveTarget,
+  createRenderer,
+  exportVideo,
+  type SaveTarget,
+} from './adapters'
 import { resetLyricsEditor } from './lyricsActions'
 import { playback } from './playback'
 import { IDLE_EXPORT, useAppStore } from './store'
@@ -45,38 +51,56 @@ export async function loadTrack(file: File) {
 
 let exportAbort: AbortController | null = null
 
+/** Call straight from the click handler: the save picker needs the user gesture. */
 export async function startExport() {
-  const { timeline, output, setExport } = useAppStore.getState()
+  const { timeline, output, scene, track, setExport } = useAppStore.getState()
   if (!timeline || exportAbort) return
-  playback.pause()
   const abort = (exportAbort = new AbortController())
-  setExport({ status: 'running', progress: 0, error: null })
+  let target: SaveTarget
+  try {
+    target = await chooseSaveTarget(baseName(track?.name), output, timeline.audio.durationSec)
+  } catch (error) {
+    exportAbort = null
+    // Closing the picker is not an error.
+    if (!(error instanceof DOMException && error.name === 'AbortError')) {
+      console.error(error)
+      setExport({ status: 'error', progress: 0, error: errorText(error) })
+    }
+    return
+  }
+  playback.pause()
+  setExport({ status: 'running', progress: 0, etaSec: null, error: null })
   let lastPushed = 0
   try {
-    const file = await exportVideo({
+    await exportVideo({
       timeline,
+      scene,
       output,
+      target,
       createRenderer,
       signal: abort.signal,
-      onProgress: (progress) => {
+      onProgress: ({ fraction, etaSec }) => {
         // Throttle store writes to whole percents.
-        if (progress - lastPushed >= 0.01 || progress === 1) {
-          lastPushed = progress
-          setExport({ progress })
+        if (fraction - lastPushed >= 0.01 || fraction === 1) {
+          lastPushed = fraction
+          setExport({ progress: fraction, etaSec })
         }
       },
     })
     setExport({ status: 'done', progress: 1 })
-    downloadBlob(file.blob, `${baseName(useAppStore.getState().track?.name)}.${file.fileExtension}`)
   } catch (error) {
     if (abort.signal.aborted) setExport({ status: 'cancelled' })
     else {
       console.error(error)
-      setExport({ status: 'error', error: error instanceof Error ? error.message : null })
+      setExport({ status: 'error', error: errorText(error) })
     }
   } finally {
     if (exportAbort === abort) exportAbort = null
   }
+}
+
+function errorText(error: unknown): string | null {
+  return error instanceof Error ? error.message : null
 }
 
 export function cancelExport() {
@@ -86,13 +110,4 @@ export function cancelExport() {
 
 function baseName(name = 'video'): string {
   return name.replace(/\.[^.]+$/, '') || 'video'
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  link.click()
-  setTimeout(() => URL.revokeObjectURL(url), 10_000)
 }

@@ -1,0 +1,218 @@
+import { describe, expect, it } from 'vitest'
+import type { Accent, AudioSection, Lyrics } from '@/shared'
+import {
+  STRONG_EFFECTS,
+  applyToAllOccurrences,
+  hookScores,
+  regenerateAuto,
+  removeAccent,
+  setAccent,
+  suggestAccents,
+} from './accents'
+import { flattenWords, parseLyricsText, withWords } from './model'
+
+// Original test lines. Words are 0.5 s apart, beats every 0.5 s, downbeats every 2 s.
+const TEXT = `[Куплет]
+Я иду по тёмной улице домой
+Фонари горят над головой
+[Припев]
+Гори огонь гори сильней
+Гори огонь в груди моей
+[Припев]
+Гори огонь гори сильней
+Гори огонь в груди моей`
+
+function timedLyrics(text = TEXT): Lyrics {
+  const lyrics = parseLyricsText(text)
+  const words = flattenWords(lyrics).map((r, i) => ({
+    ...r.word,
+    start: i * 0.5,
+    end: i * 0.5 + 0.4,
+    timingSource: 'aligned' as const,
+  }))
+  return withWords(lyrics, words)
+}
+
+function grid(step: number, until: number) {
+  return Float32Array.from({ length: Math.floor(until / step) + 1 }, (_, i) => i * step)
+}
+const rhythm = { beats: grid(0.5, 30), downbeats: grid(2, 30) }
+const wordAt = (lyrics: Lyrics, id: string) =>
+  flattenWords(lyrics).find((r) => r.word.id === id)!.word
+
+describe('hookScores', () => {
+  it('scores words repeated across chorus lines, skipping stop words', () => {
+    const scores = hookScores(timedLyrics())
+    expect(scores.get('гори')).toBe(1)
+    expect(scores.get('огонь')).toBeCloseTo(4 / 6)
+    expect(scores.has('в')).toBe(false)
+    expect(scores.has('улице')).toBe(false)
+  })
+
+  it('treats repeated unlabeled lines as a chorus', () => {
+    const scores = hookScores(parseLyricsText('Беги быстрей\nБеги быстрей\nКуда-то вдаль'))
+    expect(scores.get('беги')).toBe(1)
+  })
+})
+
+describe('suggestAccents', () => {
+  const lyrics = timedLyrics()
+
+  it('respects density and minimum gap', () => {
+    const accents = suggestAccents(lyrics, rhythm, [], { maxPer10Sec: 2, minGapSec: 1.5 })
+    const times = accents.map((a) => wordAt(lyrics, a.wordId).start!)
+    expect(accents.length).toBeGreaterThan(0)
+    for (const t of times)
+      expect(times.filter((x) => x >= t && x < t + 10).length).toBeLessThanOrEqual(2)
+    for (let i = 1; i < times.length; i++)
+      expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(1.5)
+  })
+
+  it('prefers hook words and marks everything auto with stable ids', () => {
+    const accents = suggestAccents(lyrics, rhythm)
+    expect(accents.every((a) => a.source === 'auto' && a.id === `auto:${a.wordId}`)).toBe(true)
+    const texts = accents.map((a) => wordAt(lyrics, a.wordId).text.toLowerCase())
+    expect(texts.filter((t) => t === 'гори' || t === 'огонь').length).toBeGreaterThanOrEqual(2)
+    expect(accents.some((a) => a.reason === 'hook')).toBe(true)
+    expect(suggestAccents(lyrics, rhythm)).toEqual(accents)
+  })
+
+  it('never puts two strong effects in a row', () => {
+    for (const style of ['aggressive', 'balanced', 'minimal'] as const) {
+      const accents = suggestAccents(lyrics, rhythm, [], { style, maxPer10Sec: 6, minGapSec: 0.5 })
+      for (let i = 1; i < accents.length; i++) {
+        expect(
+          STRONG_EFFECTS.has(accents[i - 1]!.effect) && STRONG_EFFECTS.has(accents[i]!.effect),
+        ).toBe(false)
+      }
+    }
+  })
+
+  it('picks effects by style', () => {
+    const minimal = suggestAccents(lyrics, rhythm, [], { style: 'minimal' })
+    expect(new Set(minimal.map((a) => a.effect))).toEqual(
+      new Set(['fullscreen-word', 'zoom-punch']),
+    )
+    const aggressive = suggestAccents(lyrics, rhythm, [], { style: 'aggressive' })
+    expect(aggressive.some((a) => a.effect === 'shake' || a.effect === 'glitch')).toBe(true)
+    for (const a of [...minimal, ...aggressive]) {
+      expect(a.intensity).toBeGreaterThan(0)
+      expect(a.intensity).toBeLessThanOrEqual(1)
+      expect(a.durationSec).toBeGreaterThan(0)
+    }
+  })
+
+  it('hits the first word of a drop and stays quiet in quiet sections', () => {
+    const verseOnly = timedLyrics('Тишина ложится на пустой перрон\nИ поезд уходит в ночь без нас')
+    const words = flattenWords(verseOnly).map((r) => r.word)
+    const sections: AudioSection[] = [
+      { start: 0, end: 2.4, kind: 'quiet', energy: 0.1 },
+      { start: 2.4, end: 10, kind: 'drop', energy: 1 },
+    ]
+    const accents = suggestAccents(verseOnly, rhythm, sections, { style: 'aggressive' })
+    const dropWord = words.find((w) => w.text === 'поезд')!
+    expect(accents.find((a) => a.wordId === dropWord.id)).toMatchObject({
+      reason: 'drop',
+      effect: 'glitch',
+    })
+    expect(accents.every((a) => wordAt(verseOnly, a.wordId).start! >= 2.4)).toBe(true)
+  })
+
+  it('uses beat strength to pick stronger beats', () => {
+    const plain = timedLyrics('Огни плывут над тёмною рекой')
+    const beatStrength = new Float32Array(rhythm.beats.length).fill(0.1)
+    beatStrength[3] = 1 // 1.5 s → "тёмною"
+    const accents = suggestAccents(
+      plain,
+      { ...rhythm, downbeats: new Float32Array(), beatStrength },
+      [],
+      {
+        minScore: 0.3,
+      },
+    )
+    expect(accents.map((a) => wordAt(plain, a.wordId).text)).toEqual(['тёмною'])
+  })
+
+  it('ignores untimed words', () => {
+    expect(suggestAccents(parseLyricsText(TEXT), rhythm)).toEqual([])
+  })
+})
+
+describe('accent editing', () => {
+  const lyrics = timedLyrics()
+  const ids = flattenWords(lyrics).map((r) => r.word.id)
+
+  it('setAccent replaces an auto accent with a user one', () => {
+    const auto: Accent[] = [
+      {
+        id: `auto:${ids[0]}`,
+        wordId: ids[0]!,
+        effect: 'flash',
+        source: 'auto',
+        preRollSec: 0,
+        durationSec: 0.2,
+        intensity: 0.7,
+        params: {},
+      },
+    ]
+    const out = setAccent(auto, ids[0]!, 'glitch')
+    expect(out).toEqual([
+      {
+        id: `user:${ids[0]}`,
+        wordId: ids[0],
+        effect: 'glitch',
+        source: 'user',
+        preRollSec: 0.05,
+        durationSec: 0.3,
+        intensity: 0.7,
+        params: {},
+      },
+    ])
+  })
+
+  it('setAccent with the same effect keeps timing, applies overrides', () => {
+    const first = setAccent([], ids[1]!, 'zoom-punch', { durationSec: 0.5, params: { scale: 1.3 } })
+    const second = setAccent(first, ids[1]!, 'zoom-punch', { intensity: 2 })
+    expect(second).toHaveLength(1)
+    expect(second[0]).toMatchObject({ durationSec: 0.5, intensity: 1, params: { scale: 1.3 } })
+  })
+
+  it('removeAccent drops accents of that word only', () => {
+    const accents = setAccent(setAccent([], ids[0]!, 'flash'), ids[1]!, 'shake')
+    expect(removeAccent(accents, ids[0]!).map((a) => a.wordId)).toEqual([ids[1]])
+  })
+
+  it('applyToAllOccurrences covers every form of the word', () => {
+    const goriId = flattenWords(lyrics).find((r) => r.word.text === 'Гори')!.word.id
+    const base = setAccent([], goriId, 'shake', { intensity: 0.4 })
+    const out = applyToAllOccurrences(lyrics, base, goriId, 'shake')
+    const gori = flattenWords(lyrics).filter((r) => r.word.text.toLowerCase() === 'гори')
+    expect(out).toHaveLength(gori.length)
+    expect(
+      out.every((a) => a.effect === 'shake' && a.source === 'user' && a.intensity === 0.4),
+    ).toBe(true)
+  })
+
+  it('regenerateAuto keeps user accents and replaces only auto ones', () => {
+    const fresh = suggestAccents(lyrics, rhythm)
+    const userWord = fresh[0]!.wordId
+    const current: Accent[] = [
+      { ...fresh[1]!, id: 'old-auto', effect: 'invert' },
+      {
+        id: 'mine',
+        wordId: userWord,
+        effect: 'invert',
+        preRollSec: 0,
+        durationSec: 0.2,
+        intensity: 1,
+        params: {},
+      },
+    ]
+    const out = regenerateAuto(current, fresh)
+    expect(out.find((a) => a.id === 'mine')).toEqual(current[1])
+    expect(out.some((a) => a.id === 'old-auto')).toBe(false)
+    expect(out.filter((a) => a.wordId === userWord)).toHaveLength(1)
+    expect(out.filter((a) => a.source === 'auto')).toHaveLength(fresh.length - 1)
+    expect(out.every((a) => !('reason' in a) && !('score' in a))).toBe(true)
+  })
+})

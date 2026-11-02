@@ -1,22 +1,22 @@
 import { useState } from 'react'
 import { Tabs, type TabItem } from '@/ui'
 import { t } from '../i18n'
+import { AccentsPanel } from './accents/AccentsPanel'
 import { ExportPanel } from './ExportPanel'
 import { OutputPanel } from './OutputPanel'
+import { StylePanel } from './StylePanel'
 import { TrackPanel } from './TrackPanel'
 
 type SidebarTab = 'output' | 'style' | 'accents'
 
-const SOON = <p className="px-4 py-6 text-xs text-subtle">{t.sidebar.soon}</p>
-
 const ITEMS: TabItem<SidebarTab>[] = [
+  { value: 'style', label: t.sidebar.style, content: <StylePanel /> },
+  { value: 'accents', label: t.sidebar.accents, content: <AccentsPanel /> },
   { value: 'output', label: t.sidebar.output, content: <OutputPanel /> },
-  { value: 'style', label: t.sidebar.style, content: SOON, disabled: true },
-  { value: 'accents', label: t.sidebar.accents, content: SOON, disabled: true },
 ]
 
 export function Sidebar() {
-  const [tab, setTab] = useState<SidebarTab>('output')
+  const [tab, setTab] = useState<SidebarTab>('style')
   return (
     <aside
       aria-label={t.sidebar.label}

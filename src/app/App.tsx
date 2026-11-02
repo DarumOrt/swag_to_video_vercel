@@ -1,3 +1,5 @@
+import { useEffect } from 'react'
+import { clearOpfsExports } from './adapters'
 import { CompatBanner } from './components/CompatBanner'
 import { LyricsPanel } from './components/lyrics/LyricsPanel'
 import { Preview } from './components/Preview'
@@ -8,6 +10,8 @@ import { useShortcuts } from './useShortcuts'
 
 export function App() {
   useShortcuts()
+  // Leftover OPFS files from an interrupted export in an earlier session.
+  useEffect(() => void clearOpfsExports(), [])
   return (
     <div className="flex h-full flex-col">
       <TopBar />

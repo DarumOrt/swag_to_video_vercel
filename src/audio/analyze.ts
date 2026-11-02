@@ -2,6 +2,8 @@ import type { AudioAnalysis, FrameFeatures } from '@/shared'
 import { FFT, hannWindow } from './fft'
 import { kWeightedSegmentEnergy, shortTermLoudness } from './loudness'
 import { slidingMedian } from './median'
+import { computeScope } from './scope'
+import { beatStrengths, detectSections } from './sections'
 import {
   estimateTempo,
   frameTimeFor,
@@ -99,6 +101,8 @@ export interface AnalysisInternals {
   harmonic: Float32Array
   /** Mid-channel power in the vocal band (same range as the `mid` band), linear. */
   midPower: Float64Array
+  /** Mid-channel power in the low band, linear. */
+  lowPower: Float64Array
 }
 
 /** FFT size: smallest power of two covering ~40 ms (2048 at 44.1/48 kHz). */
@@ -370,6 +374,10 @@ export function analyzePcmDetailed(
   const tempo = estimateTempo(flux, rate)
   const beats = tempo ? trackBeats(flux, tempo.period, frameTime) : new Float32Array(0)
   const downbeats = pickDownbeats(beats, lowPower, timeToFrame)
+  const bpm = tempo && beats.length > 0 ? Math.round(tempo.bpm * 100) / 100 : null
+  const beatStrength = beatStrengths(beats, lowPower, flux, rate)
+  const sections = detectSections({ durationSec, rate, rms, lowPower, bpm, downbeats })
+  const scope = computeScope(left, right, sampleRate, rate, frameCount)
 
   const features: FrameFeatures = {
     rate,
@@ -384,6 +392,7 @@ export function analyzePcmDetailed(
       high: normalizeBand(highPower, rate),
     },
     stereo: { correlation, width },
+    scope,
   }
 
   const analysis: AudioAnalysis = {
@@ -392,18 +401,20 @@ export function analyzePcmDetailed(
     channelCount: pcm.channels.length,
     features,
     rhythm: {
-      bpm: tempo && beats.length > 0 ? Math.round(tempo.bpm * 100) / 100 : null,
+      bpm,
       beats,
       downbeats,
       onsets,
       vocalOnsets,
+      beatStrength,
     },
     vocalActivity,
+    sections,
   }
   onProgress?.(1)
   return {
     analysis,
-    internals: { fftSize, flux, vocalFlux, vocalEnergy, vocalSpec, harmonic, midPower },
+    internals: { fftSize, flux, vocalFlux, vocalEnergy, vocalSpec, harmonic, midPower, lowPower },
   }
 }
 
@@ -474,5 +485,10 @@ export function analysisTransferables(analysis: AudioAnalysis): ArrayBuffer[] {
     rhythm.downbeats,
     rhythm.onsets,
     rhythm.vocalOnsets,
-  ].map((array) => array.buffer as ArrayBuffer)
+    rhythm.beatStrength,
+    features.scope?.left,
+    features.scope?.right,
+  ]
+    .filter((array) => array !== undefined)
+    .map((array) => array.buffer as ArrayBuffer)
 }

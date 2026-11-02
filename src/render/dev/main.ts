@@ -8,7 +8,7 @@ import { frameCountFor, type FrameRate } from '@/shared'
 import { safeAreaInsets } from '../layout'
 import { SceneRenderer } from '../SceneRenderer'
 import { createFakeTimeline } from './fakeTimeline'
-import { DEV_DURATION_SEC, devScene, hashPixels } from './common'
+import { DEV_DURATION_SEC, devEffectFactory, devScene, hashPixels, type DevSceneOptions } from './common'
 import type { WorkerRequest } from './worker'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -17,6 +17,7 @@ const formatSel = $<HTMLSelectElement>('format')
 const fpsSel = $<HTMLSelectElement>('fps')
 const titleInput = $<HTMLInputElement>('title')
 const safeToggle = $<HTMLInputElement>('safeToggle')
+const fxToggle = $<HTMLInputElement>('fxToggle')
 const safeBox = $<HTMLDivElement>('safe')
 const playBtn = $<HTMLButtonElement>('play')
 const scrub = $<HTMLInputElement>('scrub')
@@ -24,7 +25,8 @@ const stats = $<HTMLParagraphElement>('stats')
 const logEl = $<HTMLDivElement>('log')
 
 const timeline = createFakeTimeline({ durationSec: DEV_DURATION_SEC })
-const renderer = new SceneRenderer()
+const renderer = new SceneRenderer({ createEffect: devEffectFactory })
+const sceneOptions = (): DevSceneOptions => ({ title: titleInput.value, demoEffects: fxToggle.checked })
 
 let width = 1080
 let height = 1920
@@ -59,7 +61,7 @@ async function setup() {
     height,
     fps,
     timeline,
-    scene: devScene(titleInput.value),
+    scene: devScene(sceneOptions()),
   })
   scrub.max = String(frameCount - 1)
   currentFrame = Math.min(Math.floor(keepTime * fps), frameCount - 1)
@@ -115,8 +117,8 @@ function tick(now: number) {
  */
 async function hashFrames(frames: number[], cpu: boolean): Promise<string[]> {
   const c = document.createElement('canvas')
-  const r = new SceneRenderer({ willReadFrequently: cpu })
-  await r.init({ canvas: c, width, height, fps, timeline, scene: devScene(titleInput.value) })
+  const r = new SceneRenderer({ willReadFrequently: cpu, createEffect: devEffectFactory })
+  await r.init({ canvas: c, width, height, fps, timeline, scene: devScene(sceneOptions()) })
   const g = c.getContext('2d') as CanvasRenderingContext2D
   const hashes = frames.map((f) => {
     r.renderFrame(f)
@@ -147,7 +149,7 @@ async function checkWorker() {
   const n = currentFrame
   const [mainHash] = await hashFrames([n], true)
   const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
-  const req: WorkerRequest = { width, height, fps, title: titleInput.value, frameIndex: n }
+  const req: WorkerRequest = { width, height, fps, scene: sceneOptions(), frameIndex: n }
   worker.onmessage = (e: MessageEvent<{ hash: string; ms: number }>) => {
     const { hash, ms } = e.data
     log(
@@ -164,7 +166,7 @@ async function checkWorker() {
   worker.postMessage(req)
 }
 
-formatSel.onchange = fpsSel.onchange = titleInput.onchange = () => void setup()
+formatSel.onchange = fpsSel.onchange = titleInput.onchange = fxToggle.onchange = () => void setup()
 safeToggle.onchange = updateSafeBox
 playBtn.onclick = () => {
   playing = !playing

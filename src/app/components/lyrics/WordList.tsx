@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { isUncertain, nextTapUnit } from '@/lyrics'
-import type { LyricWord, Lyrics } from '@/shared'
+import type { AccentEffectId, LyricWord, Lyrics } from '@/shared'
 import { cn } from '@/ui'
 import { formatTime } from '../../format'
 import { t } from '../../i18n'
@@ -8,6 +8,8 @@ import { selectWord } from '../../lyricsActions'
 import { indexTimedWords, wordAt } from '../../lyricsEdit'
 import { useLyricsStore } from '../../lyricsStore'
 import { playback } from '../../playback'
+import { useAppStore } from '../../store'
+import { EFFECT_ICONS } from '../accents/effectIcons'
 
 /**
  * Lines and words of the lyrics. The word under the playhead is marked imperatively
@@ -18,6 +20,11 @@ export function WordList({ lyrics }: { lyrics: Lyrics }) {
   const selectedId = useLyricsStore((state) => state.selectedWordId)
   const tapTarget = useLyricsStore((state) => (state.tap ? nextTapUnit(state.tap) : null))
   const index = useMemo(() => indexTimedWords(lyrics), [lyrics])
+  const accents = useAppStore((state) => state.timeline?.accents)
+  const effectByWord = useMemo(
+    () => new Map((accents ?? []).map((accent) => [accent.wordId, accent.effect])),
+    [accents],
+  )
 
   useEffect(() => {
     const container = containerRef.current
@@ -69,6 +76,7 @@ export function WordList({ lyrics }: { lyrics: Lyrics }) {
                   word={word}
                   selected={word.id === selectedId}
                   tapTarget={tapTarget === word.id}
+                  effect={effectByWord.get(word.id) ?? null}
                 />
               ))}
             </div>
@@ -83,11 +91,14 @@ const WordChip = memo(function WordChip({
   word,
   selected,
   tapTarget,
+  effect,
 }: {
   word: LyricWord
   selected: boolean
   tapTarget: boolean
+  effect: AccentEffectId | null
 }) {
+  const EffectIcon = effect ? EFFECT_ICONS[effect] : null
   const uncertain = isUncertain(word)
   const timed = word.start !== null
   const time = timed ? formatTime(word.start!, true) : t.lyrics.noTime
@@ -103,7 +114,9 @@ const WordChip = memo(function WordChip({
       data-word-id={word.id}
       data-tap-id={word.id}
       aria-pressed={selected}
-      aria-label={t.lyrics.wordLabel(word.text, time)}
+      aria-label={
+        t.lyrics.wordLabel(word.text, time) + (effect ? `, ${t.accents.title.toLowerCase()}` : '')
+      }
       onClick={onClick}
       className={cn(
         'group flex flex-col items-start rounded-sm px-1.5 py-0.5 text-left',
@@ -118,11 +131,17 @@ const WordChip = memo(function WordChip({
     >
       <span
         className={cn(
-          'text-[14px] leading-5',
+          'flex items-center gap-1 text-[14px] leading-5',
           uncertain && 'underline decoration-warn decoration-dotted underline-offset-4',
         )}
       >
         {word.text}
+        {EffectIcon && (
+          <EffectIcon
+            aria-hidden
+            className="size-3 shrink-0 text-accent group-data-active:text-accent-fg"
+          />
+        )}
       </span>
       <span
         className={cn(

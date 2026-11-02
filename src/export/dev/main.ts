@@ -3,6 +3,7 @@
  * Also exposes `window.runExport(params)` for scripted benchmarks.
  */
 
+import { ALL_FORMATS, BlobSource, CanvasSink, Input } from 'mediabunny'
 import { analyzeAudio } from '@/audio'
 import { createFakeTimeline, SceneRenderer } from '@/render'
 import {
@@ -10,6 +11,7 @@ import {
   TIMELINE_SCHEMA_VERSION,
   type Timeline,
   type FrameRate,
+  type FrameRenderer,
   type OutputSettings,
   type VideoContainer,
 } from '@/shared'
@@ -26,6 +28,7 @@ import {
 import { stubTimeline } from './stubTimeline'
 import { syntheticAudio } from './syntheticAudio'
 import { TestFrameRenderer } from './testRenderer'
+import { frameBitsAt, TestWebglRenderer, type TestWebglOptions } from './testWebglRenderer'
 
 interface RunParams {
   container: VideoContainer
@@ -37,10 +40,15 @@ interface RunParams {
   transparent?: boolean
   /** Stream into a picked file ('file') or OPFS ('opfs') instead of an in-memory Blob. */
   save?: 'file' | 'opfs'
-  /** Run in the export worker (always SceneRenderer). */
+  /** Run in a worker: SceneRenderer, or the WebGL test renderer when renderer = 'webgl'. */
   worker?: boolean
-  /** 'test' = TestFrameRenderer (cheap), 'scene' = the real SceneRenderer with the default scene. */
-  renderer?: 'test' | 'scene'
+  /**
+   * 'test' = TestFrameRenderer (cheap), 'scene' = the real SceneRenderer with the default scene,
+   * 'webgl' = TestWebglRenderer (WebGL2 last pass, frame index encoded in pixels).
+   */
+  renderer?: 'test' | 'scene' | 'webgl'
+  /** Options for the WebGL test renderer. */
+  webgl?: TestWebglOptions
   /** URL of a real track (e.g. /test-media/x.mp3): analyzed with @/audio, exported with SceneRenderer. */
   track?: string
   /** Encoder tuning experiments: patched into the resolved VideoEncoderConfig. */
@@ -91,7 +99,7 @@ function readParams(): RunParams {
     transparent: $<HTMLInputElement>('transparent').checked,
     save: ($<HTMLSelectElement>('save').value || undefined) as RunParams['save'],
     worker: $<HTMLInputElement>('worker').checked,
-    renderer: $<HTMLSelectElement>('renderer').value as 'test' | 'scene',
+    renderer: $<HTMLSelectElement>('renderer').value as RunParams['renderer'],
   }
 }
 
@@ -104,6 +112,43 @@ function toOutput(p: RunParams): OutputSettings {
     fps: p.fps,
     container: p.container,
     transparent: p.transparent ?? false,
+  }
+}
+
+function createRenderer(p: RunParams, hasTrack: boolean): FrameRenderer {
+  if (p.renderer === 'webgl') return new TestWebglRenderer()
+  return p.renderer === 'scene' || hasTrack ? new SceneRenderer() : new TestFrameRenderer()
+}
+
+/**
+ * Decodes an exported file and checks every frame of the WebGL test renderer: the index encoded in
+ * the pixels must equal timestamp × fps. Reports blank and wrong frames.
+ */
+async function verifyFrames(url: string, fps: number, sourceWidth: number) {
+  const blob = await fetch(url).then((r) => r.blob())
+  const input = new Input({ source: new BlobSource(blob), formats: ALL_FORMATS })
+  const track = await input.getPrimaryVideoTrack()
+  if (!track) throw new Error('no video track')
+  const width = 270
+  const sink = new CanvasSink(track, { width })
+  let frames = 0
+  const blank: number[] = []
+  const wrong: { expected: number; got: number }[] = []
+  for await (const { canvas, timestamp } of sink.canvases()) {
+    const expected = Math.round(timestamp * fps)
+    const ctx = canvas.getContext('2d') as CanvasRenderingContext2D
+    const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+    const got = frameBitsAt(data, canvas.width, sourceWidth)
+    if (got === null) blank.push(expected)
+    else if (got !== expected) wrong.push({ expected, got })
+    frames++
+  }
+  return {
+    frames,
+    blank: blank.slice(0, 10),
+    blankCount: blank.length,
+    wrong: wrong.slice(0, 10),
+    wrongCount: wrong.length,
   }
 }
 
@@ -140,7 +185,7 @@ async function runExport(p: RunParams): Promise<RunSummary> {
         (p.renderer === 'scene'
           ? createFakeTimeline({ durationSec: p.durationSec })
           : stubTimeline(p.durationSec)),
-      scene: null,
+      scene: p.renderer === 'webgl' ? (p.webgl ?? {}) : null,
       output: toOutput(p),
       audio: track?.pcm ?? syntheticAudio(p.durationSec),
       durationSec: p.durationSec,
@@ -155,13 +200,15 @@ async function runExport(p: RunParams): Promise<RunSummary> {
           `осталось ${pr.etaSec === null ? '…' : `${pr.etaSec.toFixed(1)} с`}`
       },
     }
-    // The worker always renders with SceneRenderer.
     const result = p.worker
-      ? await exportVideoInWorker(common)
-      : await exportVideo({
+      ? await exportVideoInWorker({
           ...common,
-          renderer: p.renderer === 'scene' || track ? new SceneRenderer() : new TestFrameRenderer(),
+          createWorker:
+            p.renderer === 'webgl'
+              ? () => new Worker(new URL('./webgl.worker.ts', import.meta.url), { type: 'module' })
+              : undefined,
         })
+      : await exportVideo({ ...common, renderer: createRenderer(p, !!track) })
 
     const { stats, config } = result
     const row = document.createElement('tr')
@@ -230,4 +277,4 @@ $('check').addEventListener('click', async () => {
   log(JSON.stringify(shown, null, 2))
 })
 
-Object.assign(window, { runExport })
+Object.assign(window, { runExport, verifyFrames })

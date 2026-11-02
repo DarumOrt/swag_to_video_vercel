@@ -3,27 +3,27 @@
 import type { FrameRate } from '@/shared'
 import { createFakeTimeline } from './fakeTimeline'
 import { SceneRenderer } from '../SceneRenderer'
-import { DEV_DURATION_SEC, devScene, hashPixels } from './common'
+import { DEV_DURATION_SEC, devEffectFactory, devScene, hashPixels, type DevSceneOptions } from './common'
 
 export interface WorkerRequest {
   width: number
   height: number
   fps: FrameRate
-  title: string
+  scene: DevSceneOptions
   frameIndex: number
 }
 
 self.onmessage = async (e: MessageEvent<WorkerRequest>) => {
-  const { width, height, fps, title, frameIndex } = e.data
+  const { width, height, fps, scene, frameIndex } = e.data
   const canvas = new OffscreenCanvas(width, height)
-  const renderer = new SceneRenderer({ willReadFrequently: true })
+  const renderer = new SceneRenderer({ willReadFrequently: true, createEffect: devEffectFactory })
   await renderer.init({
     canvas,
     width,
     height,
     fps,
     timeline: createFakeTimeline({ durationSec: DEV_DURATION_SEC }),
-    scene: devScene(title),
+    scene: devScene(scene),
   })
   const t0 = performance.now()
   renderer.renderFrame(frameIndex)

@@ -4,36 +4,6 @@
  */
 
 import { SceneRenderer } from '@/render'
-import { exportVideo, type ExportProgress, type ExportResult } from './exportVideo'
-import type { WorkerExportJob } from './workerProtocol'
+import { serveExport } from './workerHost'
 
-export type WorkerRequest = { type: 'start'; job: WorkerExportJob } | { type: 'cancel' }
-
-export type WorkerResponse =
-  | { type: 'progress'; progress: ExportProgress }
-  | { type: 'done'; result: ExportResult }
-  | { type: 'error'; name: string; message: string }
-
-const abort = new AbortController()
-const post = (message: WorkerResponse) => self.postMessage(message)
-
-self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
-  const message = event.data
-  if (message.type === 'cancel') {
-    abort.abort()
-    return
-  }
-  const { job } = message
-  try {
-    const result = await exportVideo({
-      ...job,
-      renderer: new SceneRenderer(),
-      signal: abort.signal,
-      onProgress: (progress) => post({ type: 'progress', progress }),
-    })
-    post({ type: 'done', result })
-  } catch (error) {
-    const name = error instanceof Error || error instanceof DOMException ? error.name : 'Error'
-    post({ type: 'error', name, message: error instanceof Error ? error.message : String(error) })
-  }
-}
+serveExport(() => new SceneRenderer())

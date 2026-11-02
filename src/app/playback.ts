@@ -6,23 +6,28 @@
 export type PlayheadListener = (timeSec: number) => void
 
 class Playback {
-  private readonly audio = new Audio()
+  private element: HTMLAudioElement | null = null
   private readonly listeners = new Set<PlayheadListener>()
   private raf = 0
   private onPlayingChange: (playing: boolean) => void = () => {}
 
-  constructor() {
-    this.audio.preload = 'auto'
-    this.audio.addEventListener('play', () => {
+  /** Created on first use, so importing this module works outside the browser (tests). */
+  private get audio(): HTMLAudioElement {
+    if (this.element) return this.element
+    const audio = new Audio()
+    audio.preload = 'auto'
+    audio.addEventListener('play', () => {
       this.onPlayingChange(true)
       this.loop()
     })
-    this.audio.addEventListener('pause', () => {
+    audio.addEventListener('pause', () => {
       this.onPlayingChange(false)
       cancelAnimationFrame(this.raf)
       this.emit()
     })
-    this.audio.addEventListener('seeked', () => this.emit())
+    audio.addEventListener('seeked', () => this.emit())
+    this.element = audio
+    return audio
   }
 
   /** Called once by the app to mirror play/pause into the store. */
@@ -55,7 +60,7 @@ class Playback {
   }
 
   get time(): number {
-    return this.audio.currentTime
+    return this.element?.currentTime ?? 0
   }
 
   get duration(): number {
@@ -63,7 +68,7 @@ class Playback {
   }
 
   get playing(): boolean {
-    return !this.audio.paused
+    return this.element ? !this.element.paused : false
   }
 
   async play() {
@@ -73,7 +78,7 @@ class Playback {
   }
 
   pause() {
-    this.audio.pause()
+    this.element?.pause()
   }
 
   toggle() {
