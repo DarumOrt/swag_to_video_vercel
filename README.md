@@ -24,3 +24,11 @@ WebCodecs · mediabunny · transformers.js · onnxruntime-web
 
 - [CLAUDE.md](CLAUDE.md) — ключевые решения и архитектура
 - [docs/sessions/](docs/sessions/) — описание модулей проекта
+
+## Лицензия
+
+Код — [PolyForm Noncommercial 1.0.0](LICENSE.md): можно смотреть, изучать, менять и использовать
+в некоммерческих целях; коммерческое использование — только с разрешения автора.
+Сторонние части — под своими лицензиями: шрифты — SIL OFL (`src/render/fonts/LICENSE-*.txt`),
+веса моделей на Hugging Face — по лицензиям их репозиториев (Whisper — Apache-2.0, HTDemucs — MIT,
+выравниватель — CC BY-NC 4.0), npm-зависимости — по своим лицензиям.
