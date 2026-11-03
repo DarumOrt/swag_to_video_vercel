@@ -3,7 +3,8 @@
  * Owned by the "Текст и тайминги" session — see docs/sessions/lyrics-sync.md.
  *
  * Everything here is pure: functions return new `Lyrics` and never mutate their input.
- * Typical flow: parseLyricsText → alignLyrics(…, whisperWords) → snapToOnsets(…, rhythm.vocalOnsets).
+ * Typical flow: parseLyricsText → alignLyrics(…, whisperWords) → snapToOnsets(…, rhythm.vocalOnsets)
+ * → snapToBeatGrid(…, rhythm, {division, strength, mode}) (optional; gate it with beatGridFit).
  */
 export {
   buildLine,
@@ -58,19 +59,42 @@ export {
   type WordMatch,
 } from './align'
 export { DEFAULT_SNAP, nearestOnset, snapToOnsets, type SnapOptions } from './snap'
+export {
+  DEFAULT_GRID_SNAP,
+  GRID_AUTO_THRESHOLD,
+  GRID_DIVISIONS,
+  beatGridFit,
+  nearestGridTime,
+  snapToBeatGrid,
+  type BeatGridFit,
+  type GridDivision,
+  type GridMode,
+  type GridSnapOptions,
+} from './grid'
 export { editWord, retimeFrom, shiftLine, type RetimeResult, type WordEdit } from './edit'
 export {
   ACCENT_STYLES,
   DEFAULT_SUGGEST,
   EFFECT_DEFAULTS,
+  RANGE_EFFECTS,
   STRONG_EFFECTS,
+  accentsCoveringWord,
+  accentsForWord,
+  addAccent,
   applyToAllOccurrences,
+  isRangeEffect,
+  isValidAccentRange,
+  nextAccentId,
   hookScores,
   regenerateAuto,
   removeAccent,
+  removeAccentsOfWord,
   setAccent,
+  setAccentRange,
   suggestAccents,
+  updateAccent,
   type AccentOverrides,
+  type AccentPatch,
   type AccentReason,
   type AccentStyle,
   type AccentSuggestion,

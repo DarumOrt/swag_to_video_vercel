@@ -7,6 +7,7 @@
 import type { AudioAnalysis } from '@/shared'
 import { clamp01, lastIndexAtOrBefore, noise1 } from './math'
 import { num, str, type LocalizedText, type ParamSpec, type ParamValues } from './params'
+import { effectMood, SECTION_REACT_PARAM } from './sections'
 import type { CameraTransform, FlashOverlay } from './types'
 
 const FALLBACK_DOWNBEAT = 1
@@ -73,6 +74,7 @@ export const BEAT_CAMERA_PARAMS: ParamSpec[] = [
   n('sway', l('Покачивание', 'Sway'), 0, 0.03, 0.001, 0.004),
   n('decay', l('Затухание', 'Decay'), 0.04, 0.6, 0.01, 0.14, 's'),
   n('dropBoost', l('Усиление в дропе', 'Drop boost'), 1, 4, 0.05, 1.7),
+  SECTION_REACT_PARAM,
 ]
 
 /** Adds the beat reaction to `cam` (mutates). `params` resolved against BEAT_CAMERA_PARAMS. */
@@ -84,9 +86,11 @@ export function applyBeatCamera(
   cam: CameraTransform,
 ): void {
   const beat = beatAt(audio, t)
-  const p = beatPulse(audio, t, num(params, 'decay'), num(params, 'dropBoost'))
+  // Section energy: a restrained intro, tension growing in the build, full swing in the drop.
+  const energy = effectMood(audio, t, params).energy
+  const p = beatPulse(audio, t, num(params, 'decay'), num(params, 'dropBoost')) * energy
   const shake = num(params, 'shake')
-  const sway = num(params, 'sway')
+  const sway = num(params, 'sway') * Math.sqrt(energy)
   cam.zoom *= 1 + num(params, 'amount') * p
   // Kick: a direction picked per beat, decaying with the pulse.
   cam.x += shake * p * noise1(seed, beat.index * 1.37)
@@ -108,6 +112,7 @@ export const BEAT_FLASH_PARAMS: ParamSpec[] = [
   n('decay', l('Затухание', 'Decay'), 0.03, 0.5, 0.01, 0.09, 's'),
   { key: 'color', type: 'color', label: l('Цвет', 'Color'), default: '#ffffff' },
   n('dropBoost', l('Усиление в дропе', 'Drop boost'), 1, 3, 0.05, 1.5),
+  SECTION_REACT_PARAM,
 ]
 
 /** Flash on strong beats; inside a drop weaker beats flash too. null when nothing to draw. */
@@ -118,7 +123,8 @@ export function beatFlash(audio: AudioAnalysis, t: number, params: ParamValues):
   if (beat.index < 0) return null
   const drop = dropAmountAt(audio, t)
   if (beat.strength < num(params, 'threshold') * (1 - 0.35 * drop)) return null
-  const boost = 1 + (num(params, 'dropBoost') - 1) * drop
+  const energy = effectMood(audio, t, params).energy
+  const boost = (1 + (num(params, 'dropBoost') - 1) * drop) * energy * energy
   const alpha = clamp01(amount * boost * Math.exp(-beat.since / Math.max(num(params, 'decay'), 0.01)))
   if (alpha < 0.003) return null
   return { kind: 'flash', color: str(params, 'color'), alpha, blend: 'screen' }

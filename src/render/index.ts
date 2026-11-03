@@ -77,3 +77,28 @@ export {
   type ParamValue,
   type ParamValues,
 } from './styles/params'
+
+// Milestone 4: the director (section-by-section story, seeded "edit") and full-screen text
+export {
+  Director,
+  DIRECTOR_DEFAULTS,
+  layerGroup,
+  normalizeDirector,
+  ROLE_SHOTS,
+  TRANSITION_KINDS,
+  type DirectorInput,
+  type DirectorSpec,
+  type LayerGroup,
+  type ShotCamera,
+  type ShotSpec,
+  type ShotState,
+  type TransitionKind,
+} from './director'
+export {
+  FULLTEXT_DEFAULTS,
+  FULLTEXT_MODES,
+  type FulltextMode,
+  type FulltextSpec,
+} from './layers/fulltext'
+export { cameraScale } from './effectsHost'
+export type { EffectStyleRef } from './styles/presets'

@@ -8,7 +8,15 @@ import type { AccentEffectId, LyricWord } from '@/shared'
 import type { AccentWindow, EnvelopeShape } from './envelope'
 import { clamp01, ease, hash32, noise1, rand, type CurveId } from './math'
 import { bool, num, str, type LocalizedText, type ParamSpec, type ParamValues } from './params'
-import { PARTICLE_STRIDE, type CameraTransform, type OverlayItem, type PostDynamics } from './types'
+import {
+  addSplit,
+  MIRROR_MODES,
+  PARTICLE_STRIDE,
+  type CameraTransform,
+  type MirrorMode,
+  type OverlayItem,
+  type PostDynamics,
+} from './types'
 
 /** Mutable frame under construction; accents and rhythm add to it in order. */
 export interface FrameBuilder {
@@ -19,6 +27,19 @@ export interface FrameBuilder {
   timeLag: number
 }
 
+/** Audio around the frame, for effects that react to the track. */
+export interface AccentAudio {
+  /** Beat pulse 0..1: strength × fast decay after the last beat. */
+  pulse: number
+  /** Loudness 0..1 relative to the track (rms / its 95th percentile). */
+  loudness: number
+  /** Index of the last beat (-1 before the first) and its time. */
+  beatIndex: number
+  beatTime: number
+  /** Seconds to the next beat after `beatTime` (or a typical beat length). */
+  beatInterval: number
+}
+
 export interface AccentContext {
   time: number
   window: AccentWindow
@@ -26,13 +47,21 @@ export interface AccentContext {
   envelope: number
   /** Accent intensity 0..1. */
   intensity: number
-  /** envelope × intensity — the usual "how much" value. */
+  /**
+   * envelope × intensity × breath — the usual "how much" value. While a range accent holds, `breath`
+   * follows the audio (see the shared `breathe` param); otherwise it is 1.
+   */
   level: number
+  /** True while a range accent holds its peak (between the hit and the end of the last word). */
+  holding: boolean
   /** Linear 0..1 across the whole window. */
   progress: number
   /** Seconds since the word start (negative during pre-roll). */
   sinceHit: number
   word: LyricWord
+  /** Timed words the accent covers: [word] for a one-shot, the whole range otherwise. */
+  words: readonly LyricWord[]
+  audio: AccentAudio
   params: ParamValues
   /** Stable per accent (hash of scene seed and accent id). */
   seed: number
@@ -78,6 +107,19 @@ function envelopeParams(attack: CurveId, release: CurveId): ParamSpec[] {
       hint: { ru: 'Кривая затухания после удара', en: 'Curve after the hit' },
       options: CURVE_OPTIONS,
       default: release,
+    },
+    {
+      key: 'breathe',
+      type: 'number',
+      label: { ru: 'Дыхание от звука', en: 'Breathe with audio' },
+      hint: {
+        ru: 'Для акцента на диапазон слов: эффект пульсирует от бита и громкости, пока держится',
+        en: 'For a range of words: the effect pulses with beats and loudness while it holds',
+      },
+      min: 0,
+      max: 1,
+      step: 0.05,
+      default: 0.4,
     },
   ]
 }
@@ -160,7 +202,7 @@ const glitch: AccentEffectDef = {
     const gate = rand(c.seed, step) < 0.7 ? 1 : 0.25
     const level = c.level * gate
     const dir = rand(c.seed ^ 0x68e31da4, step) < 0.5 ? -1 : 1
-    out.post.rgbSplit += dir * num(c.params, 'rgbSplit') * level
+    out.post.rgbSplit = addSplit(out.post.rgbSplit, dir * num(c.params, 'rgbSplit') * level)
     out.post.glitch = Math.max(out.post.glitch, num(c.params, 'slices') * level)
     out.post.glitchSeed = hash32(c.seed, step)
     out.post.glitchSlices = num(c.params, 'sliceCount')
@@ -190,7 +232,9 @@ const flash: AccentEffectDef = {
     ...envelopeParams('sharp', 'soft'),
   ],
   apply(c, out) {
-    const alpha = num(c.params, 'opacity') * clamp01(c.level)
+    // Held over a range, a steady flash would just wash the frame out: it fires on the beats instead.
+    const drive = c.holding ? c.audio.pulse * c.intensity : c.level
+    const alpha = num(c.params, 'opacity') * clamp01(drive)
     if (alpha <= 0.001) return
     out.overlays.push({
       kind: 'flash',
@@ -250,8 +294,18 @@ const particleBurst: AccentEffectDef = {
   apply(c, out) {
     const overlay = burstParticles(c)
     if (overlay) out.overlays.push(overlay)
+    // Over a range, every beat re-fires a (shorter) burst.
+    const { beatIndex, beatTime } = c.audio
+    if (c.window.range && beatIndex >= 0 && beatTime > c.window.peak + 0.05 && beatTime < c.window.hold) {
+      const life = Math.min(RANGE_BURST_LIFE_SEC, c.window.end - beatTime)
+      const again = burstParticles(c, { peak: beatTime, life, seed: hash32(c.seed, beatIndex) })
+      if (again) out.overlays.push(again)
+    }
   },
 }
+
+const RANGE_BURST_LIFE_SEC = 0.9
+const RANGE_FIRST_BURST_SEC = 1.5
 
 const fullscreenWord: AccentEffectDef = {
   id: 'fullscreen-word',
@@ -280,10 +334,13 @@ const fullscreenWord: AccentEffectDef = {
   apply(c, out) {
     const alpha = clamp01(c.envelope) * (0.35 + 0.65 * c.intensity)
     if (alpha <= 0.001) return
-    const t = clamp01(c.sinceHit / 0.25)
+    // Over a range the current word is shown, each one punching in on its own start.
+    const word = currentWord(c.words, c.time) ?? c.word
+    const sinceHit = word === c.word ? c.sinceHit : c.time - (word.start ?? c.time)
+    const t = clamp01(sinceHit / 0.25)
     const motion = str(c.params, 'motion')
     const settle = ease('sharp', t)
-    const raw = c.word.text.trim().replace(/[.,!?;:…»"')\]]+$/u, '').replace(/^[«"'([]+/u, '')
+    const raw = word.text.trim().replace(/[.,!?;:…»"')\]]+$/u, '').replace(/^[«"'([]+/u, '')
     out.overlays.push({
       kind: 'word',
       text: bool(c.params, 'uppercase') ? raw.toLocaleUpperCase() : raw,
@@ -344,6 +401,217 @@ const invert: AccentEffectDef = {
   },
 }
 
+// ---------------------------------------------------------------------------
+// Modes (v1.2): whole-frame looks, usually held over a range of words
+// ---------------------------------------------------------------------------
+
+const mono: AccentEffectDef = {
+  id: 'mono',
+  label: { ru: 'Ч/б', en: 'Mono' },
+  description: {
+    ru: 'Чёрно-белый кадр с жёстким контрастом, контраст бьёт в такт',
+    en: 'Black-and-white with hard contrast that kicks on the beat',
+  },
+  defaults: { preRollSec: 0, durationSec: 0.8, intensity: 1 },
+  params: [
+    n('contrast', 'Контраст', 'Contrast', 1, 3, 0.05, 1.6),
+    n('beatContrast', 'Контраст на долях', 'Beat contrast', 0, 1, 0.05, 0.3),
+    { key: 'tint', type: 'color', label: { ru: 'Тон', en: 'Tint' }, default: '#ffffff' },
+    ...envelopeParams('sharp', 'ease'),
+  ],
+  apply(c, out) {
+    const level = clamp01(c.level)
+    if (level <= 0) return
+    if (level >= out.post.mono) out.post.monoTint = str(c.params, 'tint')
+    out.post.mono = Math.max(out.post.mono, level)
+    const contrast =
+      1 +
+      (num(c.params, 'contrast') - 1) * clamp01(c.envelope) +
+      num(c.params, 'beatContrast') * c.audio.pulse * level
+    out.post.monoContrast = Math.max(out.post.monoContrast, contrast)
+  },
+}
+
+const MIRROR_OPTIONS: { value: MirrorMode; label: LocalizedText }[] = [
+  { value: 'horizontal', label: { ru: 'Лево-право', en: 'Left-right' } },
+  { value: 'vertical', label: { ru: 'Верх-низ', en: 'Top-bottom' } },
+  { value: 'quad', label: { ru: 'Четыре четверти', en: 'Four quarters' } },
+  { value: 'kaleido', label: { ru: 'Калейдоскоп', en: 'Kaleidoscope' } },
+]
+
+const mirror: AccentEffectDef = {
+  id: 'mirror',
+  label: { ru: 'Зеркало', en: 'Mirror' },
+  description: {
+    ru: 'Зеркальное отражение кадра или калейдоскоп из сегментов',
+    en: 'Mirrors the frame or turns it into a kaleidoscope',
+  },
+  defaults: { preRollSec: 0, durationSec: 0.6, intensity: 1 },
+  params: [
+    { key: 'mode', type: 'enum', label: { ru: 'Режим', en: 'Mode' }, options: MIRROR_OPTIONS, default: 'kaleido' },
+    n('segments', 'Сегменты', 'Segments', 2, 12, 1, 6),
+    n('spin', 'Вращение', 'Spin', -90, 90, 1, 15, '°/s'),
+    n('beatTwist', 'Поворот на долях', 'Beat twist', 0, 45, 1, 8, '°'),
+    ...envelopeParams('sharp', 'sharp'),
+  ],
+  apply(c, out) {
+    const level = clamp01(c.level)
+    if (level <= 0) return
+    if (level >= out.post.mirror) {
+      const mode = str(c.params, 'mode') as MirrorMode
+      out.post.mirrorMode = MIRROR_MODES.includes(mode) ? mode : 'kaleido'
+      out.post.mirrorSegments = num(c.params, 'segments')
+      out.post.mirrorAngle =
+        (num(c.params, 'spin') * Math.max(c.sinceHit, 0) + num(c.params, 'beatTwist') * c.audio.pulse) * DEG
+    }
+    out.post.mirror = Math.max(out.post.mirror, level)
+  },
+}
+
+const strobe: AccentEffectDef = {
+  id: 'strobe',
+  label: { ru: 'Стробоскоп', en: 'Strobe' },
+  description: {
+    ru: 'Мигание в долях бита: белым, чёрным, цветом или негативом',
+    en: 'Blinks in beat subdivisions: white, black, a color or negative',
+  },
+  defaults: { preRollSec: 0, durationSec: 0.6, intensity: 1 },
+  params: [
+    {
+      key: 'mode',
+      type: 'enum',
+      label: { ru: 'Режим', en: 'Mode' },
+      options: [
+        { value: 'white', label: { ru: 'Белый', en: 'White' } },
+        { value: 'black', label: { ru: 'Чёрный', en: 'Black' } },
+        { value: 'color', label: { ru: 'Цвет', en: 'Color' } },
+        { value: 'invert', label: { ru: 'Негатив', en: 'Invert' } },
+      ],
+      default: 'white',
+    },
+    { key: 'color', type: 'color', label: { ru: 'Цвет', en: 'Color' }, default: '#ff3b6b' },
+    n('division', 'Вспышек на долю', 'Blinks per beat', 1, 4, 1, 2),
+    n('duty', 'Длина вспышки', 'Blink length', 0.1, 0.9, 0.05, 0.4),
+    n('opacity', 'Яркость', 'Opacity', 0, 1, 0.01, 0.85),
+    n('rate', 'Частота без битов', 'Rate without beats', 2, 20, 1, 8, 'Hz'),
+    ...envelopeParams('linear', 'linear'),
+  ],
+  apply(c, out) {
+    if (c.envelope < 0.05 || !strobeOn(c)) return
+    const v = clamp01(c.level)
+    const mode = str(c.params, 'mode')
+    if (mode === 'invert') {
+      out.post.invert = Math.max(out.post.invert, v)
+      return
+    }
+    out.overlays.push({
+      kind: 'flash',
+      color: mode === 'black' ? '#000000' : mode === 'color' ? str(c.params, 'color') : '#ffffff',
+      alpha: num(c.params, 'opacity') * v,
+      blend: 'normal',
+    })
+  },
+}
+
+/** Strobe phase: on during the first `duty` of each beat subdivision (or of a `rate` Hz cycle). */
+export function strobeOn(c: AccentContext): boolean {
+  const duty = num(c.params, 'duty')
+  const { beatIndex, beatTime, beatInterval } = c.audio
+  let phase: number
+  if (beatIndex >= 0 && beatInterval > 0.05) {
+    const sub = beatInterval / Math.max(1, Math.round(num(c.params, 'division')))
+    phase = ((c.time - beatTime) % sub) / sub
+  } else {
+    const x = Math.max(c.sinceHit, 0) * num(c.params, 'rate')
+    phase = x - Math.floor(x)
+  }
+  return phase < duty
+}
+
+const rgbSplit: AccentEffectDef = {
+  id: 'rgb-split',
+  label: { ru: 'RGB-сдвиг', en: 'RGB split' },
+  description: {
+    ru: 'Цветовые каналы расходятся тем сильнее, чем громче звук',
+    en: 'Color channels drift apart as the track gets louder',
+  },
+  defaults: { preRollSec: 0, durationSec: 0.6, intensity: 0.8 },
+  params: [
+    n('amount', 'Сдвиг', 'Amount', 0, 0.08, 0.001, 0.022),
+    n('angle', 'Направление', 'Angle', -180, 180, 5, 0, '°'),
+    n('loudness', 'От громкости', 'From loudness', 0, 1, 0.05, 0.7),
+    n('beatKick', 'Толчок на долях', 'Beat kick', 0, 1, 0.05, 0.5),
+    ...envelopeParams('ease', 'soft'),
+  ],
+  apply(c, out) {
+    const react = num(c.params, 'loudness')
+    const drive = (1 - react + react * c.audio.loudness) * (1 + num(c.params, 'beatKick') * c.audio.pulse)
+    const s = num(c.params, 'amount') * c.level * drive
+    if (s === 0) return
+    const a = num(c.params, 'angle') * DEG
+    out.post.rgbSplit = addSplit(out.post.rgbSplit, Math.cos(a) * s)
+    out.post.rgbSplitY = addSplit(out.post.rgbSplitY, Math.sin(a) * s)
+  },
+}
+
+const vhs: AccentEffectDef = {
+  id: 'vhs',
+  label: { ru: 'VHS', en: 'VHS' },
+  description: {
+    ru: 'Кассета: дрожание строк, растёкшийся цвет, полосы помех',
+    en: 'Tape look: jittering lines, bleeding color, noise bands',
+  },
+  defaults: { preRollSec: 0, durationSec: 0.8, intensity: 0.8 },
+  params: [
+    n('amount', 'Сила', 'Amount', 0, 1, 0.01, 0.7),
+    n('rate', 'Смена помех', 'Noise rate', 2, 30, 1, 12, 'Hz'),
+    n('desaturate', 'Выцветание', 'Fade colors', 0, 1, 0.05, 0.3),
+    ...envelopeParams('linear', 'ease'),
+  ],
+  apply(c, out) {
+    const level = clamp01(c.level) * num(c.params, 'amount')
+    if (level <= 0) return
+    const step = Math.floor(c.time * num(c.params, 'rate'))
+    if (level >= out.post.vhs) out.post.vhsSeed = hash32(c.seed, step)
+    out.post.vhs = Math.max(out.post.vhs, level)
+    out.post.saturation -= num(c.params, 'desaturate') * level
+    // Tape wobble: the picture slips a little vertically.
+    out.camera.y += 0.004 * level * noise1(c.seed, c.time * 6)
+  },
+}
+
+const cameraOrbit: AccentEffectDef = {
+  id: 'camera-orbit',
+  label: { ru: 'Облёт камеры', en: 'Camera orbit' },
+  description: {
+    ru: 'Камера облетает кадр: наклон с перспективой, крен и наезд',
+    en: 'The camera orbits the frame: perspective tilt, roll and push-in',
+  },
+  defaults: { preRollSec: 0.15, durationSec: 1.5, intensity: 0.8 },
+  params: [
+    n('yaw', 'Поворот', 'Yaw', 0, 40, 1, 18, '°'),
+    n('pitch', 'Наклон', 'Pitch', 0, 30, 1, 8, '°'),
+    n('roll', 'Крен', 'Roll', 0, 15, 0.5, 3, '°'),
+    n('speed', 'Скорость облёта', 'Orbit speed', 0.05, 2, 0.05, 0.35, 'Hz'),
+    n('zoom', 'Наезд', 'Push-in', 0, 0.4, 0.01, 0.12),
+    n('beatPush', 'Толчок на долях', 'Beat push', 0, 0.2, 0.005, 0.03),
+    ...envelopeParams('ease', 'ease'),
+  ],
+  apply(c, out) {
+    const level = c.level
+    if (level === 0) return
+    // The orbit starts at a seeded angle so two orbits do not look the same.
+    const theta = 2 * Math.PI * (num(c.params, 'speed') * (c.time - c.window.wordStart) + rand(c.seed, 11))
+    const sin = Math.sin(theta)
+    out.post.tiltYaw += num(c.params, 'yaw') * DEG * sin * level
+    out.post.tiltPitch += num(c.params, 'pitch') * DEG * Math.cos(theta) * level
+    out.camera.rotation += num(c.params, 'roll') * DEG * Math.sin(theta * 0.5 + 1) * level
+    // Parallax: the picture drifts against the turn.
+    out.camera.x -= 0.03 * sin * level
+    out.camera.zoom *= 1 + num(c.params, 'zoom') * level + num(c.params, 'beatPush') * c.audio.pulse * level
+  },
+}
+
 export const ACCENT_EFFECTS: Readonly<Record<AccentEffectId, AccentEffectDef>> = {
   'zoom-punch': zoomPunch,
   shake,
@@ -354,9 +622,15 @@ export const ACCENT_EFFECTS: Readonly<Record<AccentEffectId, AccentEffectDef>> =
   'fullscreen-word': fullscreenWord,
   'slow-motion': slowMotion,
   invert,
+  mono,
+  mirror,
+  strobe,
+  'rgb-split': rgbSplit,
+  vhs,
+  'camera-orbit': cameraOrbit,
 }
 
-/** UI order: priority effects first. */
+/** UI order: priority effects first, then the modes. */
 export const ACCENT_EFFECT_ORDER: readonly AccentEffectId[] = [
   'zoom-punch',
   'shake',
@@ -367,6 +641,12 @@ export const ACCENT_EFFECT_ORDER: readonly AccentEffectId[] = [
   'palette-shift',
   'invert',
   'slow-motion',
+  'mono',
+  'mirror',
+  'strobe',
+  'rgb-split',
+  'vhs',
+  'camera-orbit',
 ]
 
 export function getAccentEffect(id: AccentEffectId): AccentEffectDef | undefined {
@@ -391,13 +671,36 @@ export function slowMotionLag(w: AccentWindow, t: number, amount: number): numbe
 
 const DRAG = 2.6
 
-/** Particle positions at time t, computed directly from the seed (any frame can be drawn alone). */
-export function burstParticles(c: AccentContext): OverlayItem | null {
-  const age0 = c.time - c.window.peak
+/** Last word of `words` started at or before t (null before the first). */
+export function currentWord(words: readonly LyricWord[], t: number): LyricWord | null {
+  let found: LyricWord | null = null
+  for (const w of words) {
+    if (w.start === null) continue
+    if (w.start > t + 1e-6) break
+    found = w
+  }
+  return found
+}
+
+/**
+ * Particle positions at time t, computed directly from the seed (any frame can be drawn alone).
+ * `burst` overrides the burst start, lifetime and seed (re-fired bursts of a range accent).
+ */
+export function burstParticles(
+  c: AccentContext,
+  burst: { peak: number; life: number; seed: number } = {
+    peak: c.window.peak,
+    // A range's first burst does not live as long as the whole range.
+    life: Math.min(c.window.end - c.window.peak, c.window.range ? RANGE_FIRST_BURST_SEC : Infinity),
+    seed: c.seed,
+  },
+): OverlayItem | null {
+  const age0 = c.time - burst.peak
   if (age0 < 0) return null
   const p = c.params
   const count = Math.round(num(p, 'count') * (0.4 + 0.6 * clamp01(c.intensity)))
-  const lifeMax = c.window.end - c.window.peak
+  const lifeMax = burst.life
+  const seed = burst.seed
   const speed = num(p, 'speed')
   const size = num(p, 'size')
   const gravity = num(p, 'gravity')
@@ -406,11 +709,11 @@ export function burstParticles(c: AccentContext): OverlayItem | null {
   const data = new Float32Array(count * PARTICLE_STRIDE)
   let live = 0
   for (let i = 0; i < count; i++) {
-    const r0 = rand(c.seed, i * 7)
-    const r1 = rand(c.seed, i * 7 + 1)
-    const r2 = rand(c.seed, i * 7 + 2)
-    const r3 = rand(c.seed, i * 7 + 3)
-    const r4 = rand(c.seed, i * 7 + 4)
+    const r0 = rand(seed, i * 7)
+    const r1 = rand(seed, i * 7 + 1)
+    const r2 = rand(seed, i * 7 + 2)
+    const r3 = rand(seed, i * 7 + 3)
+    const r4 = rand(seed, i * 7 + 4)
     const life = lifeMax * (0.45 + 0.55 * r2)
     const age = age0 - 0.05 * r4 // small stagger
     if (age < 0 || age >= life) continue

@@ -4,6 +4,7 @@ import * as effectsModule from '@/effects'
 import type { EffectFactory, EffectSpec } from '../effectsHost'
 import type { SceneInput } from '../scene'
 import { buildPresetScene, getStylePreset } from '../styles/presets'
+import { createFakeTimeline } from './fakeTimeline'
 import { createSampleEffect, SAMPLE_EFFECTS } from './sampleEffects'
 
 export const DEV_DURATION_SEC = 32
@@ -16,6 +17,15 @@ export interface DevSceneOptions {
   demoEffects: boolean
   /** Add the preset's effect style from `@/effects` (camera, bloom, flashes...), as in the app. */
   styleEffects?: boolean
+  /** Scene seed override (another "edit" of the same preset); missing = the preset's own. */
+  seed?: number
+  /** Story sections in the fake timeline (roles intro … outro, repeat groups). */
+  story?: boolean
+}
+
+/** Fake timeline of the dev page (and its worker) for the given options. */
+export function devTimeline(o: Pick<DevSceneOptions, 'story'>) {
+  return createFakeTimeline({ durationSec: DEV_DURATION_SEC, story: o.story === true })
 }
 
 export function devScene(o: DevSceneOptions): SceneInput {
@@ -23,10 +33,11 @@ export function devScene(o: DevSceneOptions): SceneInput {
   if (o.preset !== 'default') {
     const styleFx = (effectsModule as { styleEffects?: (id: string) => EffectSpec[] }).styleEffects
     if (o.styleEffects && styleFx) effects.push(...styleFx(getStylePreset(o.preset).effectStyle))
-    return { ...buildPresetScene(o.preset, { title: o.title }), effects }
+    const scene = buildPresetScene(o.preset, { title: o.title })
+    return { ...scene, effects, seed: o.seed ?? scene.seed }
   }
   return {
-    seed: 7,
+    seed: o.seed ?? 7,
     layers: [
       { id: 'bg', type: 'background' },
       { id: 'spectrum', type: 'spectrum-bars' },

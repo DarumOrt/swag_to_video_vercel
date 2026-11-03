@@ -24,6 +24,11 @@ export interface FakeTimelineOptions {
   withLyrics?: boolean
   /** Points per frame of the oscilloscope snapshot (`features.scope`); 0 = omit scope. */
   scopePoints?: number
+  /**
+   * Song-like sections with roles (intro, verse, pre-chorus, chorus, drop, bridge, outro, repeat
+   * groups) instead of the plain quiet / build / drop loop. Default false.
+   */
+  story?: boolean
 }
 
 const MIN_HZ = 20
@@ -57,7 +62,7 @@ export function createFakeTimeline(options: FakeTimelineOptions = {}): Timeline 
   const scopeWindow = 0.025
   const scopeL = new Float32Array(scopePoints > 0 ? frameCount * scopePoints : 0)
   const scopeR = new Float32Array(scopeL.length)
-  const sections = fakeSections(durationSec)
+  const sections = options.story ? storySections(durationSec) : fakeSections(durationSec)
 
   const binHz = Array.from({ length: binCount }, (_, b) =>
     binCount > 1 ? MIN_HZ * Math.pow(MAX_HZ / MIN_HZ, b / (binCount - 1)) : MIN_HZ,
@@ -230,11 +235,43 @@ function fakeSections(durationSec: number): AudioSection[] {
   return out
 }
 
+/** A song in miniature, scaled to the duration (8 s units at 32 s). */
+function storySections(durationSec: number): AudioSection[] {
+  const plan: [AudioSection['kind'], NonNullable<AudioSection['role']>, number, number?][] = [
+    ['quiet', 'intro', 2],
+    ['normal', 'verse', 3, 1],
+    ['build', 'pre-chorus', 2],
+    ['drop', 'chorus', 3, 2],
+    ['quiet', 'bridge', 2],
+    ['build', 'pre-chorus', 1],
+    ['drop', 'drop', 3, 2],
+    ['quiet', 'outro', 2],
+  ]
+  const total = plan.reduce((a, [, , len]) => a + len, 0)
+  const out: AudioSection[] = []
+  let t = 0
+  for (const [kind, role, len, repeatGroup] of plan) {
+    const end = Math.min(t + (len / total) * durationSec, durationSec)
+    const energy = kind === 'drop' ? 1 : kind === 'build' ? 0.65 : kind === 'quiet' ? 0.35 : 0.6
+    out.push({
+      kind,
+      start: t,
+      end,
+      energy,
+      role,
+      ...(repeatGroup !== undefined && { repeatGroup }),
+    })
+    t = end
+  }
+  return out
+}
+
 /** Energy envelope following the sections; builds ramp up towards the drop. */
 function sectionEnergy(sections: AudioSection[], t: number): number {
   const s = [...sections].reverse().find((x) => x.start <= t) ?? sections[0]
   if (!s) return 1
   if (s.kind === 'quiet') return 0.5
+  if (s.kind === 'normal') return 0.75
   if (s.kind === 'build') return 0.6 + 0.3 * ((t - s.start) / Math.max(s.end - s.start, 1e-3))
   return 1
 }

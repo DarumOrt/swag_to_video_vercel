@@ -9,7 +9,7 @@
  * `camera` hooks (which run before the layers) see an empty one.
  */
 
-import type { CameraTransform } from './effectsHost'
+import { cameraScale, type CameraTransform } from './effectsHost'
 
 /** A word as a text layer reports it: frame pixels, before the camera. */
 export interface WordPlacement {
@@ -115,17 +115,21 @@ export function projectWord(
   unit: number,
 ): WordBox {
   let { x, y, width: bw, height: bh } = w
-  if (camera && (camera.zoom !== 1 || camera.rotation !== 0 || camera.x !== 0 || camera.y !== 0)) {
+  const [zx, zy] = camera ? cameraScale(camera) : [1, 1]
+  if (
+    camera &&
+    (zx !== 1 || zy !== 1 || camera.rotation !== 0 || camera.x !== 0 || camera.y !== 0)
+  ) {
     const cx = width / 2
     const cy = height / 2
-    const dx = (x - cx) * camera.zoom
-    const dy = (y - cy) * camera.zoom
+    const dx = (x - cx) * zx
+    const dy = (y - cy) * zy
     const cos = Math.cos(camera.rotation)
     const sin = Math.sin(camera.rotation)
     x = cx + camera.x * unit + dx * cos - dy * sin
     y = cy + camera.y * unit + dx * sin + dy * cos
-    const sw = bw * camera.zoom
-    const sh = bh * camera.zoom
+    const sw = bw * zx
+    const sh = bh * zy
     bw = Math.abs(sw * cos) + Math.abs(sh * sin)
     bh = Math.abs(sw * sin) + Math.abs(sh * cos)
   }

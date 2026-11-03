@@ -27,9 +27,17 @@ async function renderLog(scene: unknown, width: number, height: number, frame: n
 }
 
 describe('style presets', () => {
-  it('has the four styles, each tied to an effect style', () => {
-    expect(STYLE_PRESETS.map((p) => p.id)).toEqual(['studio', 'neon', 'minimal', 'grunge'])
-    for (const p of STYLE_PRESETS) expect(p.effectStyle).toBe(p.id)
+  it('has the five styles, each tied to an effect style', () => {
+    expect(STYLE_PRESETS.map((p) => p.id)).toEqual([
+      'studio',
+      'neon',
+      'minimal',
+      'grunge',
+      'fullscreen',
+    ])
+    for (const p of STYLE_PRESETS) {
+      expect(p.effectStyle).toBe(p.id === 'fullscreen' ? 'minimal' : p.id)
+    }
   })
 
   it.each(STYLE_PRESETS.map((p) => p.id))('%s builds a valid scene from defaults', (id) => {

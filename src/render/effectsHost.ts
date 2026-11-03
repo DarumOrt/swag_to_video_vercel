@@ -39,6 +39,13 @@ export interface CameraTransform {
   /** Offset in units (fraction of the shorter frame side). */
   x: number
   y: number
+  /**
+   * 3D lean about the horizontal axis / swing about the vertical axis, radians (optional; missing = 0).
+   * With a 3D scene (`director.camera3d`) the engine renders them as true perspective (WebGL pass over
+   * the frame); otherwise they are approximated in 2D by squashing the layers (scale by cos).
+   */
+  tiltX?: number
+  tiltY?: number
 }
 
 export const IDENTITY_CAMERA: Readonly<CameraTransform> = { zoom: 1, rotation: 0, x: 0, y: 0 }
@@ -138,9 +145,15 @@ export function applyCamera(
   height: number,
   unit: number,
 ): void {
-  if (camera.zoom === 1 && camera.rotation === 0 && camera.x === 0 && camera.y === 0) return
+  const [sx, sy] = cameraScale(camera)
+  if (sx === 1 && sy === 1 && camera.rotation === 0 && camera.x === 0 && camera.y === 0) return
   g.translate(width / 2 + camera.x * unit, height / 2 + camera.y * unit)
   if (camera.rotation !== 0) g.rotate(camera.rotation)
-  if (camera.zoom !== 1) g.scale(camera.zoom, camera.zoom)
+  if (sx !== 1 || sy !== 1) g.scale(sx, sy)
   g.translate(-width / 2, -height / 2)
+}
+
+/** Horizontal and vertical scale of a camera: zoom, squashed by tilt (2D stand-in for perspective). */
+export function cameraScale(camera: Readonly<CameraTransform>): [number, number] {
+  return [camera.zoom * Math.cos(camera.tiltY ?? 0), camera.zoom * Math.cos(camera.tiltX ?? 0)]
 }

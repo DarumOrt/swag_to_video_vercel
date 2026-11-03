@@ -222,6 +222,80 @@ export const LAYER_SCHEMAS: Record<LayerType, LayerSchema> = {
       num('tear', 'Разрыв букв', 'Tear', 0, 1, 0.05, 0),
     ],
   },
+  fulltext: {
+    label: { ru: 'Текст на весь экран', en: 'Full-screen text' },
+    params: [
+      choice(
+        'mode',
+        'Раскладка',
+        'Layout',
+        [
+          ['word', 'Слово', 'Word'],
+          ['phrase', 'Фраза', 'Phrase'],
+          ['stack', 'Столбик слов', 'Word stack'],
+        ],
+        'word',
+      ),
+      choice(
+        'orientation',
+        'Ориентация',
+        'Orientation',
+        [
+          ['horizontal', 'Горизонтально', 'Horizontal'],
+          ['vertical', 'Вертикально', 'Vertical'],
+          ['alternate', 'Чередовать', 'Alternate'],
+          ['random', 'Случайно (сид)', 'Random (seed)'],
+        ],
+        'alternate',
+      ),
+      num('verticalChance', 'Доля вертикальных', 'Vertical share', 0, 1, 0.05, 0.4),
+      choice(
+        'flipBy',
+        'Поворот по',
+        'Turn by',
+        [
+          ['line', 'Строкам', 'Lines'],
+          ['word', 'Словам', 'Words'],
+        ],
+        'line',
+      ),
+      choice(
+        'fillStyle',
+        'Буквы',
+        'Letters',
+        [
+          ['solid', 'Заливка', 'Solid'],
+          ['outline', 'Контур', 'Outline'],
+          ['video', 'Видео внутри букв', 'Picture inside'],
+        ],
+        'solid',
+      ),
+      bool('uppercase', 'Заглавные', 'Uppercase', true),
+      num('fill', 'Заполнение', 'Fill', 0.5, 1.4, 0.02, 0.92),
+      num('maxHeight', 'Макс. высота', 'Max height', 0.1, 1, 0.05, 0.5),
+      color('color', 'Цвет', 'Color', '#ffffff'),
+      color('activeColor', 'Цвет текущего слова', 'Active word color', '#ffffff'),
+      color('strokeColor', 'Цвет контура', 'Outline color', '#ffffff'),
+      num('strokeWidth', 'Контур', 'Outline', 0, 0.02, 0.001, 0),
+      num('outsideDim', 'Затемнение вокруг', 'Dim outside', 0, 1, 0.05, 0.7),
+      num('echoes', 'Эхо-контуры', 'Echo outlines', 0, 6, 1, 0),
+      num('echoSpread', 'Шаг эха', 'Echo step', 0.02, 0.3, 0.01, 0.08),
+      choice(
+        'entrance',
+        'Появление',
+        'Entrance',
+        [
+          ['slam', 'Удар', 'Slam'],
+          ['mask', 'Из-под маски', 'Mask reveal'],
+          ['mixed', 'Вперемешку (сид)', 'Mixed (seed)'],
+        ],
+        'mixed',
+      ),
+      num('appearScale', 'Масштаб удара', 'Slam scale', 1, 3, 0.05, 1.4),
+      num('beatPunch', 'Удар на бит', 'Beat punch', 0, 0.3, 0.01, 0.06),
+      num('shake', 'Тряска', 'Shake', 0, 0.04, 0.001, 0.006),
+    ],
+  },
 }
 
 export { FONT_OPTIONS }

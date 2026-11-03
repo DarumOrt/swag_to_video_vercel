@@ -21,9 +21,11 @@ import {
   type SpectrumCurveSpec,
   type WaveformSpec,
 } from '@/visualizers'
+import { normalizeDirector, type DirectorInput, type DirectorSpec } from './director'
 import type { EffectSpec } from './effectsHost'
 import type { SafeAreaMode } from './layout'
 import { BACKGROUND_DEFAULTS, type BackgroundSpec } from './layers/background'
+import { FULLTEXT_DEFAULTS, type FulltextSpec } from './layers/fulltext'
 import { KINETIC_DEFAULTS, type KineticSpec } from './layers/kinetic'
 import { LYRICS_DEFAULTS, type LyricsSpec } from './layers/lyrics'
 import { NOISE_DEFAULTS, type NoiseSpec } from './layers/noise'
@@ -45,6 +47,7 @@ export type LayerSpec =
   | TextSpec
   | LyricsSpec
   | KineticSpec
+  | FulltextSpec
 export type LayerType = LayerSpec['type']
 
 export interface Scene {
@@ -56,6 +59,8 @@ export interface Scene {
   layers: LayerSpec[]
   /** Effects (camera, overlays, post passes) in application order; created by `@/effects`. */
   effects: EffectSpec[]
+  /** Section-by-section direction (director.ts); null / missing = the scene as authored. */
+  director?: DirectorSpec | null
 }
 
 /** Scene as authored: layer fields with defaults are optional. */
@@ -65,6 +70,7 @@ export interface SceneInput {
   safeArea?: SafeAreaMode
   layers: LayerSpecInput[]
   effects?: EffectSpec[]
+  director?: DirectorInput | null
 }
 
 type Partialize<T extends LayerSpec> = T extends LayerSpec
@@ -86,6 +92,7 @@ const LAYER_DEFAULTS: { [K in LayerType]: object } = {
   correlation: CORRELATION_DEFAULTS,
   waveform: WAVEFORM_DEFAULTS,
   kinetic: KINETIC_DEFAULTS,
+  fulltext: FULLTEXT_DEFAULTS,
 }
 
 /** Defaults of a layer type (for UIs that add layers). */
@@ -126,6 +133,7 @@ export function normalizeScene(input: unknown): Scene {
     safeArea: src.safeArea ?? 'social',
     layers,
     effects,
+    director: normalizeDirector(src.director),
   }
 }
 

@@ -17,11 +17,17 @@ import {
 } from './lyricsTiming'
 import { wrapText } from './text'
 
+export type KineticMode = 'flow' | 'stack' | 'focus'
+const KINETIC_MODES: readonly KineticMode[] = ['flow', 'stack', 'focus']
+
 export interface KineticSpec extends LayerSpecBase {
   type: 'kinetic'
   rect: RectSpec
-  /** flow = words wrap like text; stack = one word per row; focus = the current word huge. */
-  mode: 'flow' | 'stack' | 'focus'
+  /**
+   * flow = words wrap like text; stack = one word per row; focus = the current word huge.
+   * The director's shot layout wins when it is one of these.
+   */
+  mode: KineticMode
   fontFamily: string
   /** Variable-font weight range; loud words get heavier. */
   weightMin: number
@@ -122,8 +128,15 @@ export class KineticLayer implements Layer {
     if (key !== this.layoutKey) {
       this.layoutKey = key
       this.layouts.clear()
-      for (const line of this.timings) this.layout(g, line, r.w, r.h, basePx, f)
+      // Lay out every line in every mode up front: a frame then never measures text, so it issues
+      // the same drawing commands whatever was rendered before it (the director may switch modes).
+      for (const line of this.timings) {
+        for (const m of KINETIC_MODES) this.layout(g, line, m, r.w, r.h, basePx, f)
+      }
     }
+    const mode = KINETIC_MODES.includes(f.shot.layout as KineticMode)
+      ? (f.shot.layout as KineticMode)
+      : s.mode
 
     g.textAlign = 'center'
     g.textBaseline = 'middle'
@@ -132,10 +145,10 @@ export class KineticLayer implements Layer {
       const state = lineStateAt(line, t, s.transitionSec)
       // Only the current line and the one leaving; no preview of the next line.
       if (!state || state.slot > 0.999 || t < line.appear) continue
-      const lay = this.layout(g, line, r.w, r.h, basePx, f)
+      const lay = this.layout(g, line, mode, r.w, r.h, basePx, f)
       const lineAlpha = state.slot < 0 ? 1 + state.slot : 1
       const lift = state.slot < 0 ? state.slot * basePx * 0.6 : 0
-      if (s.mode === 'focus') this.drawFocus(g, f, lay, r, lineAlpha)
+      if (mode === 'focus') this.drawFocus(g, f, lay, r, lineAlpha)
       else this.drawWords(g, f, lay, r, lineAlpha, lift)
     }
   }
@@ -285,12 +298,14 @@ export class KineticLayer implements Layer {
   private layout(
     g: Ctx2D,
     line: LineTiming,
+    mode: KineticMode,
     width: number,
     height: number,
     basePx: number,
     f: FrameContext,
   ): KineticLayout {
-    const cached = this.layouts.get(line.id)
+    const cacheKey = `${mode}|${line.id}`
+    const cached = this.layouts.get(cacheKey)
     if (cached) return cached
     const s = this.spec
     const words = line.words
@@ -310,11 +325,11 @@ export class KineticLayer implements Layer {
     let rows: string[][] = []
     for (let attempt = 0; attempt < 24; attempt++) {
       g.font = font(px)
-      if (s.mode === 'flow') {
+      if (mode === 'flow') {
         rows = wrapText(words.map((x) => x.text).join(' '), width, measure).map((row) =>
           row.split(' '),
         )
-      } else if (s.mode === 'stack') {
+      } else if (mode === 'stack') {
         rows = words.map((x) => [x.text])
       } else {
         rows = [[words.reduce((a, b) => (measure(b.text) > measure(a) ? b.text : a), '')]]
@@ -327,7 +342,7 @@ export class KineticLayer implements Layer {
     g.font = font(px)
     const lh = px * maxScale * s.lineHeight
     const placed: PlacedWord[] = []
-    if (s.mode === 'focus') {
+    if (mode === 'focus') {
       for (const x of words) {
         placed.push({
           word: x.w,
@@ -365,7 +380,7 @@ export class KineticLayer implements Layer {
       })
     }
     const layout = { fontPx: px, words: placed }
-    this.layouts.set(line.id, layout)
+    this.layouts.set(cacheKey, layout)
     return layout
   }
 }

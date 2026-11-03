@@ -198,7 +198,8 @@ describe('centered visualizers draw symmetrically inside their rect', () => {
             height: h,
             fps: 30,
             timeline,
-            scene: { ...scene, layers: [forContentCheck(layer)], effects: [] },
+            // Layout check: no director camera (its drift is meant to be off-center).
+            scene: { ...scene, layers: [forContentCheck(layer)], effects: [], director: null },
           })
           // Several frames: quiet / loud, on and off the beat.
           for (const frame of [45, 160, 301]) {

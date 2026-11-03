@@ -9,6 +9,7 @@
  */
 
 import { FONT_FAMILY, fontStack } from '../fonts'
+import type { DirectorInput } from '../director'
 import type { LayerSpecInput, SceneInput } from '../scene'
 import {
   bool,
@@ -25,14 +26,16 @@ import {
   type ParamValues,
 } from './params'
 
-export type StylePresetId = 'studio' | 'neon' | 'minimal' | 'grunge'
+export type StylePresetId = 'studio' | 'neon' | 'minimal' | 'grunge' | 'fullscreen'
+/** Effect styles in `@/effects` (EFFECT_STYLES). */
+export type EffectStyleRef = 'studio' | 'neon' | 'minimal' | 'grunge'
 
 export interface StylePreset {
   id: StylePresetId
   name: LocalizedText
   description: LocalizedText
   /** Id of the effect style in `@/effects` (EFFECT_STYLES). */
-  effectStyle: StylePresetId
+  effectStyle: EffectStyleRef
   params: ParamSpec[]
   /** Scene for the given knob values (missing / invalid values fall back to defaults). */
   build(values?: ParamValues): SceneInput
@@ -184,7 +187,9 @@ const studio: StylePreset = {
       unplayedColor: 'rgba(148,163,184,0.3)',
       playheadColor: '#f8fafc',
     })
-    return { seed: 11, layers }
+    // Instruments stay put: only a slow, small drift and softer intro / outro.
+    const director: DirectorInput = { energy: 0.3, chaos: 0.15, randomness: 0.4 }
+    return { seed: 11, layers, director }
   },
 }
 
@@ -455,7 +460,8 @@ const neon: StylePreset = {
         { ...curve, id: 'curve', lineColor: mountain ? p : '#ffd6f6', lineWidth: 0.0035 },
       )
     }
-    return { seed: 23, layers }
+    const director: DirectorInput = { energy: 0.6, chaos: 0.35, randomness: 0.6 }
+    return { seed: 23, layers, director }
   },
 }
 
@@ -485,6 +491,7 @@ const minimal: StylePreset = {
       'flow',
       GROUP.text,
     ),
+    bool('directed', 'Раскладка по секциям', 'Layout by section', true, GROUP.text),
     choice('font', 'Шрифт', 'Font', FONT_OPTIONS, 'grotesk', GROUP.text),
     color('textColor', 'Цвет текста', 'Text color', '#111111', GROUP.text),
     num('contrast', 'Контраст веса', 'Weight contrast', 0, 1, 0.05, 0.75, GROUP.text),
@@ -566,7 +573,20 @@ const minimal: StylePreset = {
         playheadWidth: 0,
       },
     ]
-    return { seed: 31, layers }
+    // Typography changes with the song: stacks in pre-choruses and choruses, one word on drops.
+    const director: DirectorInput = {
+      energy: 0.5,
+      chaos: 0.2,
+      randomness: 0.5,
+      scenes: b(v.directed)
+        ? {
+            'pre-chorus': { layout: 'stack' },
+            chorus: { layout: ['stack', 'focus'] },
+            drop: { layout: 'focus' },
+          }
+        : {},
+    }
+    return { seed: 31, layers, director }
   },
 }
 
@@ -668,11 +688,180 @@ const grunge: StylePreset = {
         refreshHz: 12,
       },
     ]
-    return { seed: 47, layers }
+    const director: DirectorInput = {
+      energy: 0.8,
+      chaos: 0.5,
+      randomness: 0.7,
+      scenes: { drop: { layout: 'focus' }, chorus: { layout: ['stack', 'focus'] } },
+    }
+    return { seed: 47, layers, director }
   },
 }
 
-export const STYLE_PRESETS: readonly StylePreset[] = [studio, neon, minimal, grunge]
+// ---------------------------------------------------------------------------
+// Полноэкранный текст — edit style: the word fills the frame, turns 90°, the visualizers show
+// through the letters, the camera leans and orbits (3D), every section looks different
+// ---------------------------------------------------------------------------
+
+const fullscreen: StylePreset = {
+  id: 'fullscreen',
+  name: { ru: 'Полноэкранный текст', en: 'Full-screen text' },
+  description: {
+    ru: 'Как в edit-ах: слово на весь экран, поворот вертикально/горизонтально, визуализатор внутри букв, камера в 3D, каждая часть песни выглядит по-своему',
+    en: 'Edit style: the word fills the screen, turns vertical/horizontal, the visualizer inside the letters, 3D camera, every part of the song looks different',
+  },
+  effectStyle: 'minimal',
+  params: [
+    choice(
+      'letters',
+      'Буквы',
+      'Letters',
+      [
+        ['video', 'Видео внутри букв', 'Picture inside'],
+        ['solid', 'Заливка', 'Solid'],
+        ['outline', 'Контур', 'Outline'],
+      ],
+      'video',
+      GROUP.text,
+    ),
+    choice(
+      'orientation',
+      'Ориентация',
+      'Orientation',
+      [
+        ['alternate', 'Чередовать', 'Alternate'],
+        ['random', 'Случайно (сид)', 'Random (seed)'],
+        ['horizontal', 'Горизонтально', 'Horizontal'],
+        ['vertical', 'Вертикально', 'Vertical'],
+      ],
+      'alternate',
+      GROUP.text,
+    ),
+    choice('font', 'Шрифт', 'Font', FONT_OPTIONS, 'condensed', GROUP.text),
+    num('echoes', 'Эхо-контуры', 'Echo outlines', 0, 6, 1, 2, GROUP.text),
+    color('primary', 'Основной цвет', 'Primary color', '#ff3b5c', GROUP.visual),
+    color('secondary', 'Второй цвет', 'Secondary color', '#ffd23f', GROUP.visual),
+    color('background', 'Фон', 'Background', '#050505', GROUP.background),
+    choice(
+      'visual',
+      'Визуализатор',
+      'Visualizer',
+      [
+        ['bars', 'Полосы', 'Bars'],
+        ['scope', 'Осциллограф', 'Oscilloscope'],
+        ['both', 'Полосы и осциллограф', 'Bars and scope'],
+      ],
+      'both',
+      GROUP.visual,
+    ),
+    num('energy', 'Энергия', 'Energy', 0, 1, 0.05, 0.7, GROUP.motion),
+    num('chaos', 'Хаос', 'Chaos', 0, 1, 0.05, 0.5, GROUP.motion),
+    bool('camera3d', 'Камера в 3D', '3D camera', true, GROUP.motion),
+  ],
+  build(values) {
+    const v = resolveParams(fullscreen.params, values)
+    const p = str(v.primary, '#ff3b5c')
+    const q = str(v.secondary, '#ffd23f')
+    const visual = str(v.visual, 'both')
+    const letters = str(v.letters, 'video') as 'video' | 'solid' | 'outline'
+    const fontKey = str(v.font, 'condensed')
+    const layers: LayerSpecInput[] = [
+      {
+        id: 'bg',
+        type: 'background',
+        fill: {
+          kind: 'radial',
+          cx: 0.5,
+          cy: 0.5,
+          radius: 0.9,
+          stops: [
+            { offset: 0, color: withAlpha(p, 0.18) },
+            { offset: 0.6, color: str(v.background, '#050505') },
+            { offset: 1, color: '#000000' },
+          ],
+        },
+        pulse: { band: 'low', amount: 0.08 },
+        pulseColor: p,
+        vignette: 0.4,
+      },
+    ]
+    // The picture behind (and inside) the letters: edge to edge, loud and bright.
+    if (visual !== 'scope') {
+      layers.push({
+        id: 'bars',
+        type: 'spectrum-bars',
+        rect: { x: 0, y: 0, w: 1, h: 1, space: 'frame' },
+        anchor: 'center',
+        barCount: 40,
+        gap: 0.3,
+        radius: 0,
+        colors: [q, p, '#ffffff'],
+        reflection: 0,
+        gamma: 1.3,
+        releaseSec: 0.12,
+        pulse: { band: 'low', amount: 0.15 },
+        motion: { beatScale: 0.05, beatSections: { quiet: 0.3, drop: 1.5 } },
+      })
+    }
+    if (visual !== 'bars') {
+      layers.push({
+        id: 'scope',
+        type: 'oscilloscope',
+        rect: { x: 0, y: 0.3, w: 1, h: 0.4, space: 'frame' },
+        channel: 'stereo',
+        color: '#ffffff',
+        color2: q,
+        gain: 2.4,
+        lineWidth: 0.008,
+        blend: 'lighter',
+        motion: { beatAlpha: 0.6 },
+      })
+    }
+    layers.push(
+      {
+        id: 'fulltext',
+        type: 'fulltext',
+        mode: 'word',
+        orientation: str(v.orientation, 'alternate') as 'alternate',
+        flipBy: 'line',
+        fontFamily: fontOf(fontKey),
+        fontWeight: fontKey === 'condensed' ? 700 : 900,
+        fillStyle: letters,
+        color: '#ffffff',
+        activeColor: letters === 'video' ? q : p,
+        strokeColor: '#ffffff',
+        strokeWidth: letters === 'video' ? 0.0025 : 0,
+        outsideDim: 0.78,
+        videoBoost: 0.7,
+        echoes: Math.round(n(v.echoes, 2)),
+        echoSpread: 0.07,
+        echoOpacity: 0.4,
+      },
+      { id: 'grain', type: 'noise', amount: 0.08, scratches: 0, refreshHz: 24 },
+    )
+    // Every role gets its own typography; drops and bridges lean and orbit the hardest.
+    const director: DirectorInput = {
+      energy: n(v.energy, 0.7),
+      chaos: n(v.chaos, 0.5),
+      randomness: 0.7,
+      camera3d: b(v.camera3d),
+      transitionSec: 0.35,
+      scenes: {
+        intro: { layout: 'phrase', groups: { visual: 0.45 } },
+        verse: { layout: ['phrase', 'stack'] },
+        'pre-chorus': { layout: 'stack', camera: { push: 0.12 } },
+        chorus: { layout: ['word', 'stack'], intensity: 1.25 },
+        drop: { layout: 'word', intensity: 1.45, camera: { tilt: 1, orbit: 1.2, punch: 1.6 } },
+        bridge: { layout: 'phrase', camera: { tilt: 1, orbit: 1.3 } },
+        breakdown: { layout: 'phrase', groups: { visual: 0.5 } },
+        outro: { layout: 'phrase', groups: { visual: 0.5 } },
+      },
+    }
+    return { seed: 59, layers, director }
+  },
+}
+
+export const STYLE_PRESETS: readonly StylePreset[] = [studio, neon, minimal, grunge, fullscreen]
 export const DEFAULT_STYLE_PRESET: StylePresetId = 'neon'
 
 export function getStylePreset(id: string): StylePreset {

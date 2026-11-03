@@ -135,7 +135,7 @@ describe('rhythm', () => {
   it('flashes only on strong beats', () => {
     const tl = createFakeTimeline({ durationSec: 10 })
     delete tl.audio.rhythm.beatStrength
-    const params = resolveParams(BEAT_FLASH_PARAMS, { amount: 0.5, threshold: 0.9 })
+    const params = resolveParams(BEAT_FLASH_PARAMS, { amount: 0.5, threshold: 0.9, sectionReact: 0 })
     expect(beatFlash(tl.audio, 2.01, params)?.alpha).toBeGreaterThan(0.3) // downbeat
     expect(beatFlash(tl.audio, 2.51, params)).toBeNull()
   })

@@ -5,6 +5,7 @@
  */
 
 import type { AudioSection, Timeline } from '@/shared'
+import type { ShotState } from './director'
 import type { CameraTransform } from './effectsHost'
 import type { Layout, PixelRect, RectSpec } from './layout'
 import type { LayerMotion } from './motion'
@@ -57,6 +58,11 @@ export interface FrameContext {
   beat: BeatInfo
   /** Energy section at `time`, null when the analysis has none. */
   section: AudioSection | null
+  /**
+   * The director's shot at `time` (director.ts): section role, progress, seeded variant, reaction
+   * intensity, text layout. Without a director: the role and neutral levels.
+   */
+  shot: ShotState
   /** Seeded RNG for this frame: same (seed, frame, salt) → same sequence. */
   rng(salt?: string | number): () => number
   /** Feature series value at the current frame (linear interpolation). */

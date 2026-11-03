@@ -4,6 +4,7 @@
  */
 
 import type { LocalizedText, ParamSpec } from '../params'
+import { SECTION_REACT_PARAM } from '../sections'
 
 export type PostQuality = 'low' | 'medium' | 'high'
 
@@ -54,6 +55,7 @@ export const POST_EFFECTS: Readonly<
       n('threshold', l('Порог', 'Threshold'), 0, 1, 0.01, 0.6),
       n('radius', l('Радиус', 'Radius'), 0, 1, 0.01, 0.5),
       beatPulseParam(2, 0.05),
+      SECTION_REACT_PARAM,
       {
         key: 'quality',
         type: 'enum',
@@ -70,7 +72,11 @@ export const POST_EFFECTS: Readonly<
   'chromatic-aberration': {
     label: l('Хроматическая аберрация', 'Chromatic aberration'),
     description: l('Цветные края к краям кадра', 'Color fringes toward the frame edges'),
-    params: [n('amount', l('Сила', 'Amount'), 0, 0.02, 0.0005, 0.003), beatPulseParam(0.01, 0.0005)],
+    params: [
+      n('amount', l('Сила', 'Amount'), 0, 0.02, 0.0005, 0.003),
+      beatPulseParam(0.01, 0.0005),
+      SECTION_REACT_PARAM,
+    ],
   },
   'color-grade': {
     label: l('Цветокоррекция', 'Color grading'),
@@ -85,6 +91,7 @@ export const POST_EFFECTS: Readonly<
       { key: 'shadowTint', type: 'color', label: l('Тон теней', 'Shadow tint'), default: '#000000' },
       { key: 'highlightTint', type: 'color', label: l('Тон светов', 'Highlight tint'), default: '#ffffff' },
       n('toning', l('Сила тонирования', 'Toning'), 0, 1, 0.01, 0),
+      SECTION_REACT_PARAM,
     ],
   },
   vignette: {
@@ -93,6 +100,7 @@ export const POST_EFFECTS: Readonly<
     params: [
       n('amount', l('Сила', 'Amount'), 0, 1, 0.01, 0.4),
       n('softness', l('Мягкость', 'Softness'), 0.05, 1, 0.01, 0.5),
+      SECTION_REACT_PARAM,
     ],
   },
   scanlines: {
@@ -103,6 +111,7 @@ export const POST_EFFECTS: Readonly<
       n('density', l('Плотность', 'Density'), 0.25, 3, 0.05, 1),
       n('wobble', l('Дрожание', 'Wobble'), 0, 1, 0.01, 0),
       n('noise', l('Помехи', 'Noise'), 0, 1, 0.01, 0),
+      SECTION_REACT_PARAM,
     ],
   },
   grain: {
@@ -111,6 +120,7 @@ export const POST_EFFECTS: Readonly<
     params: [
       n('amount', l('Сила', 'Amount'), 0, 0.4, 0.005, 0.05),
       n('size', l('Размер', 'Size'), 1, 4, 0.1, 1.5),
+      SECTION_REACT_PARAM,
     ],
   },
 }

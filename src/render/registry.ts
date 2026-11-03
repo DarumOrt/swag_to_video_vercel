@@ -9,6 +9,7 @@ import {
   WaveformLayer,
 } from '@/visualizers'
 import { BackgroundLayer } from './layers/background'
+import { FulltextLayer } from './layers/fulltext'
 import { KineticLayer } from './layers/kinetic'
 import { LyricsLayer } from './layers/lyrics'
 import { NoiseLayer } from './layers/noise'
@@ -44,5 +45,7 @@ export function createLayer(spec: LayerSpec): Layer {
       return new LyricsLayer(spec)
     case 'kinetic':
       return new KineticLayer(spec)
+    case 'fulltext':
+      return new FulltextLayer(spec)
   }
 }

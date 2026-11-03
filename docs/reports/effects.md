@@ -1,41 +1,42 @@
-# Эффекты и пост-обработка: отчёт (веха 3)
+# Эффекты и пост-обработка: отчёт (веха 4)
 
 ## Публичный API (`@/effects`)
 
-- `createEffect: EffectFactory`: фабрика для хоста эффектов рендера (`src/render/effectsHost.ts`). Неизвестный `type` → `null`.
-- Типы `scene.effects` (`EFFECT_TYPES[type]` = { label, description, params, hooks }):
-  `accents` (все `timeline.accents`; params `style`, `font`, `fontWeight`), `beat-camera`, `beat-flash`,
-  пост WebGL2: `bloom` (+`quality`), `chromatic-aberration`, `color-grade`, `vignette`, `scanlines` (VHS), `grain`.
-- Акценты: `ACCENT_EFFECTS[id]` = { label, description, defaults {preRollSec, durationSec, intensity}, params },
-  `ACCENT_EFFECT_ORDER`. Общие параметры всех акцентов: `attack` / `release` (linear|ease|sharp|soft|elastic).
-- Схемы параметров: `ParamSpec` = number {min,max,step,default,unit?} | boolean | enum {options} | color ('#rrggbb'),
-  подписи `label`/`hint` {ru,en}. `resolveParams` зажимает значения в диапазон и подставляет дефолты.
-- Стили: `EFFECT_STYLES` / `EFFECT_STYLE_ORDER` (studio, neon, minimal, grunge), `styleEffects(id)` → готовые `EffectSpec[]`.
-- Чистая логика: `prepareAccents` / `evaluateAccents`, `accentWindow`, `envelopeAt`, `beatAt`, `beatPulse`, `dropAmountAt`,
-  `drawOverlays`, `effectFontFamilies`.
+- `createEffect: EffectFactory` для хоста рендера; неизвестный `type` → `null`. Типы `scene.effects` (`EFFECT_TYPES`):
+  `accents`, `beat-camera`, `beat-flash`, **`section-transitions`**, пост WebGL2: `bloom`, `chromatic-aberration`,
+  `color-grade`, `vignette`, `scanlines`, `grain`.
+- Акценты: `ACCENT_EFFECTS[id]` = { label, description, defaults, params }, `ACCENT_EFFECT_ORDER` (15 шт.). Общие параметры:
+  `attack` / `release`, **`breathe`** (0..1, дыхание от бита/громкости во время удержания диапазона).
+- `ParamSpec` (number | boolean | enum | color, подписи RU/EN), `resolveParams`. Стили: `EFFECT_STYLES`, `styleEffects(id)`.
+- Секции (`sections.ts`): `sectionAt`, `moodAt` / `SECTION_MOODS`, `planTransitions(sections, seed, kinds)`, `transitionAt`.
 
-## Что готово
+## Что готово (веха 4)
 
-- 9 акцентов: zoom-punch, shake, fullscreen-word, glitch, flash, particle-burst, palette-shift, invert, slow-motion.
-- Ритм: камера и вспышки на долях, усиление в дропах; фолбэк без `beatStrength` (даунбит 1, остальные 0.6) и без `sections`.
-- 6 пост-проходов WebGL2, 4 стиля, стенд `dev/effects.html` (порт 5180).
-- Детерминизм проверен: кадр N совпадает после других кадров, в новом рендерере и в воркере.
-- Стоимость кадра 1080×1920 на машине разработки: 7.6–12.7 мс в зависимости от стиля. Тесты: `src/effects/*.test.ts`.
+- **Диапазоны** (`Accent.endWordId`): окно `start(wordId) − preRoll → пик → удержание до конца endWordId → спад`
+  (спад = `durationSec`, но не дольше 0.35 с). `AccentWindow` получил `hold` и `range`. Конец раньше начала → одиночный.
+  В удержании `level` дышит от бита и громкости (rms / 95-й перцентиль трека). Вспышка в диапазоне бьёт на долях,
+  частицы перезапускаются на каждой доле, «слово на весь экран» показывает текущее слово диапазона.
+- **Несколько акцентов на слово**: фиксированный порядок (старт окна, затем id); камера — композиция, пост — смешивание
+  (RGB-сдвиги складываются без взаимного гашения, mix-каналы — максимум), оверлеи — стопкой: слово, частицы, вспышка.
+- **6 режимов**: `mono` (ч/б, контраст бьёт в такт, тон), `mirror` (лево-право / верх-низ / четверти / калейдоскоп с
+  вращением), `strobe` (доли бита, белый / чёрный / цвет / негатив; без битов — по Гц), `rgb-split` (от громкости,
+  угол), `vhs` (дрожание строк, полоса трекинга, растёкшийся цвет, помехи), `camera-orbit` (перспектива в пост-проходе).
+- **Секции**: `beat-camera`, `beat-flash` и все пост-проходы масштабируются настроением роли (параметр `sectionReact`,
+  по умолчанию 1; без секций — нейтрально). Интро сдержанно, pre-chorus нарастает к концу, дроп/припев — максимум,
+  бридж — холоднее и бледнее, брейкдаун — почти ч/б. Между секциями кроссфейд 0.35 с.
+- **Переходы** `section-transitions`: flash / glitch / zoom (наезд до склейки) / whip (рывок через склейку). Вид выбирается
+  по сиду эффекта (= сид сцены + id) с весами по входящей роли; наборы `auto|clean|rough|<один вид>`. Есть во всех 4 стилях.
+- Тесты: `m4.test.ts` (диапазоны, наложение, режимы, секции, сид) + старые, 85 зелёных; шейдеры компилируются в Chrome.
 
-## Известные проблемы и ловушки
+## Проблемы и ловушки
 
-- Акценты и ритм идут по `frame.baseTime`. Slow-motion меняет только время слоёв (`remapTime`) и к концу окна догоняет звук.
-- Эффект `accents` кэширует последний вычисленный кадр: несколько хуков на кадр, состояние между кадрами не переносится.
-- Шрифт «слова на весь экран» не грузится движком: первый кадр может уйти системным шрифтом.
-- Типы хоста импортируются из `@/render/effectsHost` (только `import type`, TODO).
-- Силу bloom в неоне приходится ограничивать, иначе текст пересвечивается на сильной доле.
-- Оверлеи рисуются в экранных координатах, вне камеры. Частицы не знают, где на экране слово.
-- На встроенной графике может понадобиться `bloom.quality: 'low'`; не измерено.
+- `camera-orbit` — 2.5D: кадр целиком поворачивается как плоскость (гомография в шейдере, края — зеркальный повтор).
+  Настоящий параллакс слоёв требует от хоста перспективы камеры (см. ниже).
+- `beat-flash` теперь в интро заметно слабее (энергия²); для старого поведения — `sectionReact: 0`.
+- Режимы — в одном акцентном проходе; при двух зеркалах/VHS побеждает акцент с большим уровнем.
 
-## Что осталось
+## Что осталось / правки для других
 
-- Рендер: реэкспорт типов хоста из `@/render`; перед первым кадром ждать шрифты из `effectFontFamilies(spec)`.
-  Опционально — раскладка строки лирики, чтобы частицы вылетали от слова.
-- Фронт: строить контролы из `ParamSpec` (number→range, boolean→toggle, enum→select, color→color); дефолты нового
-  акцента брать из `ACCENT_EFFECTS[id].defaults`; стиль задаёт `scene.effects = styleEffects(id)`.
-- Замер на встроенной графике (по правилу 11, с подтверждением пользователя).
+- Фронт: иконки новых id (`src/app/components/accents/effectIcons.ts`), контрол `breathe`, UI диапазона.
+- Рендер (по желанию): `yaw`/`pitch` в `CameraTransform` + глубина слоёв → настоящий 3D-облёт вместо гомографии.
+- Замер стоимости кадра с режимами на встроенной графике (правило 11, с подтверждением пользователя).

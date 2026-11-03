@@ -42,10 +42,18 @@ export interface AudioAnalysis {
 
 export type SectionKind = 'quiet' | 'build' | 'drop' | 'normal'
 
+/** Musical role of a section (v1.2): drives the "story" of the video. Guessed from energy + repetition. */
+export type SectionRole =
+  'intro' | 'verse' | 'pre-chorus' | 'chorus' | 'drop' | 'bridge' | 'breakdown' | 'outro'
+
 export interface AudioSection extends TimeRange {
   kind: SectionKind
   /** Mean energy of the section relative to the track, 0..1. */
   energy: number
+  /** Musical role (v1.2, optional). Missing = derive from `kind`. */
+  role?: SectionRole
+  /** Sections that sound alike share a group number (chorus repeats…). Optional (v1.2). */
+  repeatGroup?: number
 }
 
 /**
@@ -172,10 +180,24 @@ export type AccentEffectId =
   | 'fullscreen-word'
   | 'slow-motion'
   | 'invert'
+  // Modes (v1.2): look changes for the whole frame, usually held over a range of words (`endWordId`).
+  | 'mono'
+  | 'mirror'
+  | 'strobe'
+  | 'rgb-split'
+  | 'vhs'
+  | 'camera-orbit'
 
+/**
+ * An effect bound to a word. One word may carry several accents (unique `id`, any mix of effects).
+ * With `endWordId` the accent is a toggle: on at `wordId`'s start (minus pre-roll), off at the end of
+ * `endWordId` (which must not come earlier); `durationSec` then only shapes the release.
+ */
 export interface Accent {
   id: string
   wordId: string
+  /** Range end (v1.2): the accent holds until this word ends. Missing = a one-shot of `durationSec`. */
+  endWordId?: string
   effect: AccentEffectId
   /** 'auto' = suggested by the app, 'user' = placed or confirmed by the user. Missing = 'user'. */
   source?: 'auto' | 'user'
@@ -198,4 +220,22 @@ export function featureIndexAt(features: FrameFeatures, timeSec: number): number
   // Small epsilon: times like 245/60 land a hair below the grid point in float math.
   const index = Math.floor(timeSec * features.rate + 1e-6)
   return Math.min(Math.max(index, 0), Math.max(features.frameCount - 1, 0))
+}
+
+/** Role of a section: the analysed `role`, or a guess from `kind` and position when it is missing. */
+export function sectionRole(sections: readonly AudioSection[], index: number): SectionRole {
+  const section = sections[index]
+  if (!section) return 'verse'
+  if (section.role) return section.role
+  const last = index === sections.length - 1
+  switch (section.kind) {
+    case 'quiet':
+      return index === 0 ? 'intro' : last ? 'outro' : 'breakdown'
+    case 'build':
+      return 'pre-chorus'
+    case 'drop':
+      return 'drop'
+    default:
+      return index === 0 ? 'intro' : last ? 'outro' : 'verse'
+  }
 }

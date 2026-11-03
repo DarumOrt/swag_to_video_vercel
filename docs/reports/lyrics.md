@@ -7,14 +7,21 @@
 - `snapToOnsets(lyrics, vocalOnsets, {windowSec=0.08, sources})` · `lyricsFromRecognized(words, {lineGapSec, maxWordsPerLine})` · `isUncertain(word)`
 - Тап-синк: `startTapSession(lyrics, 'line'|'word', fromIndex)`, `recordTap`, `recordRelease`, `undoTap`, `nextTapUnit`, `applyTaps(lyrics, session)`
 - Редактор: `editWord(lyrics, wordId, {text?, start?, end?})`, `shiftLine(lyrics, lineId, delta)`, `retimeFrom(lyrics, wordId, mode) → {lyrics, session, resumeFromSec}`
-- Акценты: `suggestAccents(lyrics, rhythm, sections?, {style, maxPer10Sec=3, minGapSec=1, minScore=0.6}) → AccentSuggestion[]`, `setAccent(accents, wordId, effect, overrides?)`, `removeAccent`, `applyToAllOccurrences(lyrics, accents, wordId, effect)`, `regenerateAuto(accents, suggestions)`
+- Сетка BPM (`grid.ts`): `snapToBeatGrid(lyrics, {beats}, {division:4|8|16=8, strength=0.8, mode:'lines'|'words'|'both'='lines', maxShiftSec=0.12, sources})`, `beatGridFit(lyrics, {beats}) → {score, suggestedDivision, byDivision}`, `GRID_AUTO_THRESHOLD=0.5`, `nearestGridTime`. Сетка строится между соседними битами (дрейф темпа). Двигает только `whisper/aligned/interpolated/snapped`, ставит `'snapped'`.
+- Акценты (контракт v1.2, несколько на слово): `addAccent(accents, wordId, effect, overrides?{…, endWordId})` (id `user:<wordId>`, `#2`…; `nextAccentId` — предсказать id), `updateAccent(accents, id, patch)` (патч → `source:'user'`; смена effect сбрасывает тайминг; `endWordId:null` снимает диапазон), `removeAccent(accents, id)` (не найден id → снимает все акценты слова, для старых вызовов), `removeAccentsOfWord`, `setAccentRange(lyrics, accents, id, endWordId|null)` (невалидный конец → без изменений; проверка `isValidAccentRange`), `accentsForWord`, `accentsCoveringWord(lyrics, accents, wordId)`, `isRangeEffect`/`RANGE_EFFECTS`, `applyToAllOccurrences` (добавляет/обновляет акцент ЭТОГО эффекта, чужие не трогает, диапазон копируется по длине в словах), `regenerateAuto`, `suggestAccents(lyrics, rhythm, sections?, {style, maxPer10Sec, minGapSec, minScore, sectionModes=true, minSectionWords=3})`, `setAccent` — старая обёртка (заменяет ВСЕ акценты слова; фронт перейдёт на `addAccent`).
 - Утилиты: `tokenizeLine`, `normalizeWord`, `wordSimilarity`, `transliterate`, `countSyllables`, `detectLanguage`, `spellNumber`, `flattenWords`, `withWords`, `sanitizeTimings`, `distribute`
+
+## Что вызвать фронту (веха 4)
+
+`alignLyrics → snapToOnsets(…, vocalOnsets) → [snapToBeatGrid(…, rhythm, {division: fit.suggestedDivision})]`. Тумблер «сетка BPM»:
+`fit = beatGridFit(lyrics, rhythm)` после выравнивания; авто-включать при `fit.score >= GRID_AUTO_THRESHOLD` (0.5; ровный бит ~0.8+,
+свободный ритм ~0.1), иначе показывать выключенным. Снап пересчитывать от выровненных слов, не накладывать повторно (идемпотентен, но тянет по `strength`).
 
 ## Готово
 
 Модель/парсинг (секции, `stanzaStart`, стабильные id), LRC/Enhanced LRC (импорт → `'imported'`), NW-выравнивание
 (транслит RU↔EN, числа 0–999, дефисы, монотонность, разведение повторов по времени/паузам), интерполяция по слогам,
-магнит к onsets, тап-синк, режим без текста, правки для редактора, подсказки акцентов (3 стиля). 86 тестов.
+магнит к onsets, тап-синк, режим без текста, правки для редактора, подсказки акцентов (3 стиля). 107 тестов. Диапазонные режимы: дефолты в `EFFECT_DEFAULTS` (6 новых id), `suggestAccents` кладёт ≤1 режим на секцию с ролью chorus/drop (`reason:'section'`, `endWordId`, id `auto:<wordId>:range`; style minimal — без режимов).
 
 ## Известные проблемы и ловушки
 
@@ -23,16 +30,11 @@
 - `snapToOnsets` двигает только `whisper/aligned/interpolated/snapped`; `'imported'` — только если добавить в `sources`.
 - Без `durationSec` одиночный распознанный припев всегда уходит к последнему повтору — передавайте длину трека.
 - Числа только в начальной форме («одна», «двух» не совпадут); >999 и годы не раскрываются.
-- Если в дефисном слове совпала только вторая часть, старт слова будет поздним.
 - `sanitizeTimings` при перекрытиях сдвигает старты вперёд каскадом — перед вызовом тайминги должны быть почти упорядочены.
 - `AccentSuggestion` несёт лишние `reason`/`score`; в timeline класть через `regenerateAuto` (он их срезает).
-- Удалённый пользователем автоакцент вернётся при `regenerateAuto` — в контракте нет «отклонённых» слов.
-- `AccentStyle` объявлен в `src/lyrics`, а не в `src/shared`.
 - Тексты из `test-media/*.txt` нельзя копировать в тесты — только собственные строки.
 
 ## Что осталось
 
 - Проверка выравнивания на реальном выходе Whisper (`test-media/`), подбор `threshold`/`positionWeight`/`runBonus`.
 - Формы числительных, годы; слоги в контракте (`LyricWord.syllables`) — отложено главной сессией.
-- Хранение отклонённых автоакцентов; общий тип стиля акцентов в `src/shared`.
-- Подсказки акцентов на реальных `beatStrength`/`sections`.

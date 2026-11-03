@@ -41,6 +41,11 @@
         pointer-events: none;
         display: none;
       }
+      #shot {
+        font-family: ui-monospace, monospace;
+        color: #fc9;
+        margin: 0;
+      }
       #stats {
         font-family: ui-monospace, monospace;
         color: #9cf;
@@ -66,6 +71,7 @@
           <option value="neon" selected>Неон</option>
           <option value="minimal">Минимал</option>
           <option value="grunge">Гранж</option>
+          <option value="fullscreen">Полноэкранный текст</option>
           <option value="default">Базовая сцена</option>
         </select></label
       >
@@ -91,6 +97,12 @@
       <label
         >Название <input id="title" value="Ночной город · Night City" style="width: 220px"
       /></label>
+      <label
+        >Сид
+        <input id="seed" type="number" min="0" step="1" style="width: 90px" placeholder="пресета"
+      /></label>
+      <button id="shuffle" title="Новый сид — другой «монтаж»">🎲 Перемешать</button>
+      <label><input id="storyToggle" type="checkbox" checked /> сюжетные секции</label>
       <label><input id="safeToggle" type="checkbox" /> безопасная зона</label>
       <label><input id="styleFxToggle" type="checkbox" checked /> эффекты стиля</label>
       <label><input id="fxToggle" type="checkbox" /> демо-эффекты</label>
@@ -100,6 +112,7 @@
       <button id="worker">Кадр в воркере (OffscreenCanvas)</button>
     </fieldset>
     <p id="stats"></p>
+    <p id="shot"></p>
     <div id="stage">
       <canvas id="canvas"></canvas>
       <div id="safe"></div>

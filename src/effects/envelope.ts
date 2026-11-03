@@ -7,16 +7,28 @@
  *
  * With preRollSec = 0 the attack would be instantaneous, which aliases at 24–30 fps, so it is
  * stretched to at least MIN_ATTACK_SEC *after* the hit instead (peak moves slightly later).
+ *
+ * Range accents (`Accent.endWordId`) hold the peak until the end of the last word, then release:
+ *
+ *   start → peak (attack) → hold = range end (envelope 1) → end = hold + release
+ *
+ * The release of a range is `durationSec` capped at RANGE_MAX_RELEASE_SEC, so the accent goes off
+ * close to where the user ended it.
  */
 
 import { ease, type CurveId } from './math'
 
 export const MIN_ATTACK_SEC = 1 / 60
+export const RANGE_MAX_RELEASE_SEC = 0.35
 
 export interface AccentWindow {
   start: number
   peak: number
+  /** Release starts here; equals `peak` for a one-shot accent. */
+  hold: number
   end: number
+  /** True for a range accent (held over several words). */
+  range: boolean
   /** The word's own start/end (end may be null when the word has no end time). */
   wordStart: number
   wordEnd: number | null
@@ -34,17 +46,31 @@ export function accentWindow(
   wordEnd: number | null,
   preRollSec: number,
   durationSec: number,
+  /** Range end (end of the last word of a range accent); omitted for a one-shot. */
+  holdUntil?: number,
 ): AccentWindow {
   const pre = Math.max(0, preRollSec)
   const dur = Math.max(MIN_ATTACK_SEC * 2, durationSec)
   const peak = pre >= MIN_ATTACK_SEC ? wordStart : wordStart + MIN_ATTACK_SEC
+  if (holdUntil !== undefined && Number.isFinite(holdUntil)) {
+    const hold = Math.max(peak, holdUntil)
+    const release = Math.min(dur, RANGE_MAX_RELEASE_SEC)
+    return { start: wordStart - pre, peak, hold, end: hold + release, range: true, wordStart, wordEnd }
+  }
   return {
     start: wordStart - pre,
     peak,
+    hold: peak,
     end: wordStart + dur,
+    range: false,
     wordStart,
     wordEnd,
   }
+}
+
+/** True while a range accent holds its peak (between the hit and the range end). */
+export function isHolding(w: AccentWindow, t: number): boolean {
+  return w.range && t >= w.peak && t < w.hold
 }
 
 export function isActive(w: AccentWindow, t: number): boolean {
@@ -55,7 +81,8 @@ export function isActive(w: AccentWindow, t: number): boolean {
 export function envelopeAt(w: AccentWindow, t: number, shape: EnvelopeShape = DEFAULT_ENVELOPE): number {
   if (t < w.start || t >= w.end) return 0
   if (t < w.peak) return ease(shape.attack, (t - w.start) / (w.peak - w.start))
-  return 1 - ease(shape.release, (t - w.peak) / (w.end - w.peak))
+  if (t < w.hold) return 1
+  return 1 - ease(shape.release, (t - w.hold) / (w.end - w.hold))
 }
 
 /** Linear progress 0..1 across the whole window. */

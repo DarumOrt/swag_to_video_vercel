@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { Accent, AudioSection, Lyrics } from '@/shared'
 import {
+  EFFECT_DEFAULTS,
   STRONG_EFFECTS,
+  accentsCoveringWord,
+  accentsForWord,
+  addAccent,
+  isRangeEffect,
+  nextAccentId,
   applyToAllOccurrences,
   hookScores,
   regenerateAuto,
   removeAccent,
   setAccent,
+  setAccentRange,
+  updateAccent,
   suggestAccents,
 } from './accents'
 import { flattenWords, parseLyricsText, withWords } from './model'
@@ -214,5 +222,103 @@ describe('accent editing', () => {
     expect(out.filter((a) => a.wordId === userWord)).toHaveLength(1)
     expect(out.filter((a) => a.source === 'auto')).toHaveLength(fresh.length - 1)
     expect(out.every((a) => !('reason' in a) && !('score' in a))).toBe(true)
+  })
+})
+
+describe('multiple and range accents', () => {
+  const lyrics = timedLyrics()
+  const ids = flattenWords(lyrics).map((r) => r.word.id)
+
+  it('addAccent stacks accents on a word with unique ids', () => {
+    let a = addAccent([], ids[0]!, 'zoom-punch')
+    a = addAccent(a, ids[0]!, 'flash')
+    a = addAccent(a, ids[0]!, 'flash')
+    expect(new Set(a.map((x) => x.id)).size).toBe(3)
+    expect(accentsForWord(a, ids[0]!)).toHaveLength(3)
+    expect(a[0]).toMatchObject({ id: `user:${ids[0]}`, source: 'user', durationSec: 0.35 })
+    expect(nextAccentId(a, ids[0]!)).toBe(`user:${ids[0]}#4`)
+  })
+
+  it('range effects have defaults and are marked as range effects', () => {
+    for (const e of ['mono', 'mirror', 'strobe', 'rgb-split', 'vhs', 'camera-orbit'] as const) {
+      expect(EFFECT_DEFAULTS[e].durationSec).toBeGreaterThan(0)
+      expect(isRangeEffect(e)).toBe(true)
+    }
+    expect(isRangeEffect('flash')).toBe(false)
+  })
+
+  it('updateAccent patches by id, resets timing on an effect change, clears the range', () => {
+    let a = addAccent([], ids[1]!, 'flash', { intensity: 0.5 })
+    a = addAccent(a, ids[1]!, 'mono', { endWordId: ids[4]! })
+    const [flash, mono] = a
+    const changed = updateAccent(a, flash!.id, { effect: 'glitch' })
+    expect(changed[0]).toMatchObject({ effect: 'glitch', durationSec: 0.3, intensity: 0.5 })
+    expect(changed[1]).toEqual(mono)
+    const cleared = updateAccent(a, mono!.id, { endWordId: null })
+    expect('endWordId' in cleared[1]!).toBe(false)
+    expect(updateAccent(a, 'nope', { intensity: 1 })).toEqual(a)
+  })
+
+  it('setAccentRange validates order', () => {
+    const a = addAccent([], ids[3]!, 'mono')
+    const id = a[0]!.id
+    expect(setAccentRange(lyrics, a, id, ids[2]!)).toEqual(a) // before start: refused
+    expect(setAccentRange(lyrics, a, id, 'missing')).toEqual(a)
+    expect(setAccentRange(lyrics, a, id, ids[3]!)[0]!.endWordId).toBe(ids[3])
+    const ranged = setAccentRange(lyrics, a, id, ids[6]!)
+    expect(ranged[0]!.endWordId).toBe(ids[6])
+    expect(setAccentRange(lyrics, ranged, id, null)[0]!.endWordId).toBeUndefined()
+    expect(accentsCoveringWord(lyrics, ranged, ids[5]!)).toHaveLength(1)
+    expect(accentsCoveringWord(lyrics, ranged, ids[7]!)).toHaveLength(0)
+  })
+
+  it('removeAccent removes one accent by id (word id still works for the old callers)', () => {
+    const a = addAccent(addAccent([], ids[0]!, 'flash'), ids[0]!, 'shake')
+    expect(removeAccent(a, a[0]!.id)).toEqual([a[1]])
+    expect(removeAccent(a, ids[0]!)).toEqual([])
+  })
+
+  it('applyToAllOccurrences keeps other accents and copies a range by length', () => {
+    const goriIds = flattenWords(lyrics)
+      .filter((r) => r.word.text.toLowerCase() === 'гори')
+      .map((r) => r.word.id)
+    const first = goriIds[0]!
+    const at = ids.indexOf(first)
+    let a = addAccent([], first, 'flash')
+    a = addAccent(a, first, 'mono', { endWordId: ids[at + 1]! })
+    const out = applyToAllOccurrences(lyrics, a, first, 'mono')
+    const monos = out.filter((x) => x.effect === 'mono')
+    expect(monos).toHaveLength(goriIds.length)
+    for (const m of monos) expect(m.endWordId).toBe(ids[ids.indexOf(m.wordId) + 1])
+    expect(out.filter((x) => x.effect === 'flash')).toHaveLength(1)
+    expect(applyToAllOccurrences(lyrics, out, first, 'mono')).toEqual(out)
+  })
+
+  it('regenerateAuto never touches user accents, including ranges', () => {
+    const fresh = suggestAccents(lyrics, rhythm)
+    const user = addAccent([], fresh[0]!.wordId, 'mono', { endWordId: ids[ids.length - 1]! })
+    const out = regenerateAuto(user, fresh)
+    expect(out[0]).toEqual(user[0])
+    expect(out.filter((x) => x.wordId === fresh[0]!.wordId)).toHaveLength(1)
+  })
+
+  it('suggests one range mode per chorus/drop section', () => {
+    const sections: AudioSection[] = [
+      { start: 0, end: 4, kind: 'normal', energy: 0.4, role: 'verse' },
+      { start: 4, end: 10, kind: 'normal', energy: 0.9, role: 'chorus' },
+      { start: 10, end: 14, kind: 'drop', energy: 1 },
+    ]
+    const out = suggestAccents(lyrics, rhythm, sections, { style: 'aggressive' })
+    const ranges = out.filter((a) => a.endWordId)
+    expect(ranges.map((r) => r.effect)).toEqual(['rgb-split', 'strobe'])
+    expect(ranges.every((r) => r.reason === 'section' && r.source === 'auto')).toBe(true)
+    const chorus = ranges[0]!
+    expect(wordAt(lyrics, chorus.wordId).start).toBeGreaterThanOrEqual(4)
+    expect(wordAt(lyrics, chorus.endWordId!).start).toBeLessThan(10)
+    expect(regenerateAuto([], out).filter((a) => a.endWordId)).toHaveLength(2)
+    const noModes = suggestAccents(lyrics, rhythm, sections, { sectionModes: false })
+    expect(noModes.some((a) => a.endWordId)).toBe(false)
+    const minimal = suggestAccents(lyrics, rhythm, sections, { style: 'minimal' })
+    expect(minimal.some((a) => a.endWordId)).toBe(false)
   })
 })

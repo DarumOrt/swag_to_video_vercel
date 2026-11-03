@@ -5,6 +5,7 @@
  *   accents              — every accent of timeline.accents (camera, overlay, time warp, post pass)
  *   beat-camera          — camera pulse / kick / sway on beats, boosted in drops
  *   beat-flash           — overlay flash on strong beats
+ *   section-transitions  — a short flash / glitch / zoom / whip at section starts, picked by the seed
  *   bloom, chromatic-aberration, color-grade, vignette, scanlines, grain — WebGL2 post passes
  *
  * Effects keep no state between frames. The `accents` effect memoizes the last evaluated time
@@ -22,9 +23,10 @@ import { accentsPass, createPostPass } from './post/passes'
 import { POST_EFFECTS, type PostEffectType } from './post/settings'
 import { EFFECT_STYLE_ORDER, EFFECT_STYLES, type EffectStyleId } from './presets'
 import { applyBeatCamera, BEAT_CAMERA_PARAMS, BEAT_FLASH_PARAMS, beatFlash } from './rhythm'
+import { planTransitions, TRANSITION_PARAMS, transitionAt, type SectionTransition, type TransitionFrame } from './sections'
 import { isNeutralPost, type AccentFrame, type OverlayItem } from './types'
 
-export type EffectType = 'accents' | 'beat-camera' | 'beat-flash' | PostEffectType
+export type EffectType = 'accents' | 'beat-camera' | 'beat-flash' | 'section-transitions' | PostEffectType
 
 export type EffectHook = 'time' | 'camera' | 'overlay' | 'post'
 
@@ -102,6 +104,16 @@ export const EFFECT_TYPES: Readonly<Record<EffectType, EffectTypeInfo>> = {
     params: BEAT_FLASH_PARAMS,
     hooks: ['overlay'],
   },
+  'section-transitions': {
+    type: 'section-transitions',
+    label: { ru: 'Переходы между секциями', en: 'Section transitions' },
+    description: {
+      ru: 'Короткая вспышка, глитч, наезд или рывок камеры на стыке секций; выбор зависит от сида сцены',
+      en: 'A short flash, glitch, zoom or whip pan where sections change; picked by the scene seed',
+    },
+    params: TRANSITION_PARAMS,
+    hooks: ['camera', 'overlay', 'post'],
+  },
   ...(Object.fromEntries(
     (Object.keys(POST_EFFECTS) as PostEffectType[]).map((type) => [
       type,
@@ -141,8 +153,45 @@ export const createEffect: EffectFactory = (spec, { seed }) => {
           if (flash) drawOverlays(g, [flash], f.layout)
         },
       }
+    case 'section-transitions':
+      return transitionsEffect(spec.id, params, seed)
     default:
       return { id: spec.id, post: createPostPass(spec.type, params) }
+  }
+}
+
+function transitionsEffect(id: string, params: ParamValues, seed: number): Effect {
+  let plan: { sections: Timeline['audio']['sections']; list: SectionTransition[] } | null = null
+  let memo: { timeline: Timeline; time: number; frame: TransitionFrame } | null = null
+  const at = (timeline: Timeline, time: number): TransitionFrame => {
+    if (memo && memo.timeline === timeline && memo.time === time) return memo.frame
+    const sections = timeline.audio.sections
+    const current =
+      plan && plan.sections === sections ? plan : { sections, list: planTransitions(sections, seed, str(params, 'kinds')) }
+    plan = current
+    const frame = transitionAt(current.list, time, params, seed)
+    memo = { timeline, time, frame }
+    return frame
+  }
+  const pass = accentsPass((f) => at(f.timeline, f.baseTime).post)
+  return {
+    id,
+    camera(f, cam) {
+      const c = at(f.timeline, f.baseTime).camera
+      cam.zoom *= c.zoom
+      cam.rotation += c.rotation
+      cam.x += c.x
+      cam.y += c.y
+    },
+    overlay(g, f) {
+      const flash = at(f.timeline, f.baseTime).flash
+      if (flash) drawOverlays(g, [flash], f.layout)
+    },
+    post: { ...pass, active: (f) => !isNeutralPost(at(f.timeline, f.baseTime).post) },
+    dispose() {
+      plan = null
+      memo = null
+    },
   }
 }
 

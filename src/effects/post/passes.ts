@@ -9,7 +9,8 @@ import type { PostKit, PostPass, RenderTarget, ShaderProgram } from '@/render/ef
 import { hexToRgb } from '../math'
 import { num, str, type ParamValues } from '../params'
 import { beatPulse } from '../rhythm'
-import type { PostDynamics } from '../types'
+import { effectMood, type SectionMood } from '../sections'
+import { MIRROR_MODES, type PostDynamics } from '../types'
 import { QUALITY_PROFILES, type PostEffectType, type PostQuality } from './settings'
 import {
   ACCENTS_FS,
@@ -50,19 +51,33 @@ function singlePass(fs: string, set: Setter, active?: (f: FrameContext) => boole
 
 const pulse = (f: FrameContext) => beatPulse(f.timeline.audio, f.baseTime, BEAT_DECAY_SEC, BEAT_DROP_BOOST)
 
+/** Glow follows the section energy at a lower rate than motion (a calm intro still glows a little). */
+const glowScale = (m: SectionMood) => Math.max(0, 1 + 0.6 * (m.energy - 1))
+
 /** Accent pass driven by per-frame dynamics computed by the `accents` effect. */
 export function accentsPass(dynamics: (f: FrameContext) => PostDynamics): PostPass {
   return singlePass(
     ACCENTS_FS,
     (gl, p, f) => {
       const d = dynamics(f)
-      gl.uniform1f(p.uniform('uRgbSplit'), d.rgbSplit)
+      gl.uniform2f(p.uniform('uRes'), f.layout.width, f.layout.height)
+      gl.uniform2f(p.uniform('uRgbSplit'), d.rgbSplit, d.rgbSplitY)
       gl.uniform1f(p.uniform('uGlitch'), d.glitch)
       gl.uniform1ui(p.uniform('uGlitchSeed'), d.glitchSeed >>> 0)
       gl.uniform1f(p.uniform('uGlitchSlices'), Math.max(1, d.glitchSlices))
       gl.uniform1f(p.uniform('uHue'), d.hueShift)
       gl.uniform1f(p.uniform('uSaturation'), d.saturation)
       gl.uniform1f(p.uniform('uInvert'), d.invert)
+      gl.uniform1f(p.uniform('uMono'), d.mono)
+      gl.uniform1f(p.uniform('uMonoContrast'), d.monoContrast)
+      gl.uniform3fv(p.uniform('uMonoTint'), hexToRgb(d.monoTint))
+      gl.uniform1f(p.uniform('uMirror'), d.mirror)
+      gl.uniform1i(p.uniform('uMirrorMode'), MIRROR_MODES.indexOf(d.mirrorMode))
+      gl.uniform1f(p.uniform('uMirrorSegments'), Math.max(1, d.mirrorSegments))
+      gl.uniform1f(p.uniform('uMirrorAngle'), d.mirrorAngle)
+      gl.uniform1f(p.uniform('uVhs'), d.vhs)
+      gl.uniform1ui(p.uniform('uVhsSeed'), d.vhsSeed >>> 0)
+      gl.uniform2f(p.uniform('uTilt'), d.tiltYaw, d.tiltPitch)
     },
   )
 }
@@ -74,7 +89,10 @@ function bloomPass(params: ParamValues): PostPass {
   let combine: ShaderProgram | null = null
   let a: RenderTarget | null = null
   let b: RenderTarget | null = null
-  const strength = (f: FrameContext) => num(params, 'strength') * (1 + num(params, 'beatPulse') * pulse(f))
+  const strength = (f: FrameContext) =>
+    num(params, 'strength') *
+    (1 + num(params, 'beatPulse') * pulse(f)) *
+    glowScale(effectMood(f.timeline.audio, f.baseTime, params))
 
   const blurPass = (kit: PostKit, from: RenderTarget, to: RenderTarget, sx: number, sy: number) => {
     kit.bind(to)
@@ -130,11 +148,12 @@ function bloomPass(params: ParamValues): PostPass {
 /** Creates the pass for a post effect type with resolved params. */
 export function createPostPass(type: PostEffectType, params: ParamValues): PostPass {
   const n = (k: string) => num(params, k)
+  const mood = (f: FrameContext) => effectMood(f.timeline.audio, f.baseTime, params)
   switch (type) {
     case 'bloom':
       return bloomPass(params)
     case 'chromatic-aberration': {
-      const amount = (f: FrameContext) => n('amount') + n('beatPulse') * pulse(f)
+      const amount = (f: FrameContext) => (n('amount') + n('beatPulse') * pulse(f)) * mood(f).energy
       return singlePass(
         CHROMA_FS,
         (gl, p, f) => gl.uniform1f(p.uniform('uAmount'), amount(f)),
@@ -142,11 +161,12 @@ export function createPostPass(type: PostEffectType, params: ParamValues): PostP
       )
     }
     case 'color-grade':
-      return singlePass(COLOR_GRADE_FS, (gl, p) => {
-        gl.uniform1f(p.uniform('uExposure'), n('exposure'))
-        gl.uniform1f(p.uniform('uContrast'), n('contrast'))
-        gl.uniform1f(p.uniform('uSaturation'), n('saturation'))
-        gl.uniform1f(p.uniform('uTemperature'), n('temperature'))
+      return singlePass(COLOR_GRADE_FS, (gl, p, f) => {
+        const m = mood(f)
+        gl.uniform1f(p.uniform('uExposure'), n('exposure') + m.exposure)
+        gl.uniform1f(p.uniform('uContrast'), Math.max(0.3, n('contrast') + m.contrast))
+        gl.uniform1f(p.uniform('uSaturation'), Math.max(0, n('saturation') + m.saturation))
+        gl.uniform1f(p.uniform('uTemperature'), n('temperature') + m.temperature)
         gl.uniform1f(p.uniform('uTint'), n('tint'))
         gl.uniform1f(p.uniform('uLift'), n('lift'))
         gl.uniform3fv(p.uniform('uShadowTint'), hexToRgb(str(params, 'shadowTint')))
@@ -158,10 +178,10 @@ export function createPostPass(type: PostEffectType, params: ParamValues): PostP
         VIGNETTE_FS,
         (gl, p, f) => {
           gl.uniform2f(p.uniform('uRes'), f.layout.width, f.layout.height)
-          gl.uniform1f(p.uniform('uAmount'), n('amount'))
+          gl.uniform1f(p.uniform('uAmount'), Math.min(1, n('amount') + mood(f).vignette))
           gl.uniform1f(p.uniform('uSoftness'), n('softness'))
         },
-        () => n('amount') > 0,
+        (f) => n('amount') + mood(f).vignette > 0,
       )
     case 'scanlines':
       return singlePass(
@@ -169,10 +189,11 @@ export function createPostPass(type: PostEffectType, params: ParamValues): PostP
         (gl, p, f) => {
           gl.uniform2f(p.uniform('uRes'), f.layout.width, f.layout.height)
           gl.uniform1ui(p.uniform('uFrame'), f.frameIndex >>> 0)
+          const e = Math.min(mood(f).energy, 1.5)
           gl.uniform1f(p.uniform('uAmount'), n('amount'))
           gl.uniform1f(p.uniform('uDensity'), Math.max(n('density'), 0.05))
-          gl.uniform1f(p.uniform('uWobble'), n('wobble'))
-          gl.uniform1f(p.uniform('uNoise'), n('noise'))
+          gl.uniform1f(p.uniform('uWobble'), Math.min(1, n('wobble') * e))
+          gl.uniform1f(p.uniform('uNoise'), Math.min(1, n('noise') * e))
         },
         () => n('amount') > 0 || n('wobble') > 0 || n('noise') > 0,
       )
@@ -182,7 +203,7 @@ export function createPostPass(type: PostEffectType, params: ParamValues): PostP
         (gl, p, f) => {
           gl.uniform2f(p.uniform('uRes'), f.layout.width, f.layout.height)
           gl.uniform1ui(p.uniform('uFrame'), f.frameIndex >>> 0)
-          gl.uniform1f(p.uniform('uAmount'), n('amount'))
+          gl.uniform1f(p.uniform('uAmount'), n('amount') * (1 + mood(f).grain))
           gl.uniform1f(p.uniform('uSize'), Math.max(n('size'), 0.5))
         },
         () => n('amount') > 0,

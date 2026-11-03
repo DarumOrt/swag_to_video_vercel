@@ -6,6 +6,7 @@
 
 import * as effectsModule from '@/effects'
 import type { FrameRate, FrameRenderer, RenderCanvas, RendererInit, Timeline } from '@/shared'
+import { Director, layerGroup, neutralShot, type LayerGroup, type ShotState } from './director'
 import {
   applyCamera,
   IDENTITY_CAMERA,
@@ -13,10 +14,12 @@ import {
   type Effect,
   type EffectFactory,
   type EffectSpec,
+  type PostPass,
 } from './effectsHost'
 import { embeddedFamiliesIn, loadEmbeddedFonts } from './fonts'
 import { computeLayout, resolveRect, type Layout } from './layout'
 import { cameraAtDepth, layerMotionAt, type LayerMotion } from './motion'
+import { createPerspectivePass, hasTilt } from './perspective'
 import { PostChain } from './post'
 import { createRng, hash32 } from './random'
 import { createLayer } from './registry'
@@ -33,6 +36,7 @@ interface LayerEntry {
   blend: GlobalCompositeOperation
   camera: boolean
   motion: LayerMotion | null
+  group: LayerGroup
   seed: number
 }
 
@@ -83,6 +87,9 @@ export class SceneRenderer implements FrameRenderer {
   private layers: LayerEntry[] = []
   private effects: EffectEntry[] = []
   private post: PostChain | null = null
+  private director: Director | null = null
+  /** The post chain renders tilt as true perspective (else layers get a 2D squash). */
+  private perspective = false
 
   constructor(options: SceneRendererOptions = {}) {
     this.options = options
@@ -113,6 +120,7 @@ export class SceneRenderer implements FrameRenderer {
         blend: spec.blend ?? 'source-over',
         camera: spec.camera ?? spec.type !== 'background',
         motion: spec.motion ?? null,
+        group: layerGroup(spec.type),
         seed: hash32(scene.seed, spec.id),
       }))
 
@@ -124,15 +132,34 @@ export class SceneRenderer implements FrameRenderer {
         const effect = factory(spec, { seed })
         return effect ? [{ effect, seed }] : []
       })
+    // Section transitions belong to the effects when the scene has them; the director then only
+    // changes shots.
+    const externalTransitions =
+      this.effects.length > 0 &&
+      scene.effects.some((e) => e.enabled !== false && e.type === 'section-transitions')
+    this.director = scene.director
+      ? new Director(scene.director, scene.seed, options.timeline, {
+          transitions: !externalTransitions,
+        })
+      : null
     const passes = this.effects.flatMap((e) => (e.effect.post ? [e.effect.post] : []))
-    if (passes.length > 0) {
-      this.post = new PostChain(
-        passes,
+    const make = (list: PostPass[]) =>
+      new PostChain(
+        list,
         Math.round(options.width),
         Math.round(options.height),
         this.options.willReadFrequently ?? false,
       )
+    if (scene.director?.camera3d && typeof OffscreenCanvas !== 'undefined') {
+      // 3D camera: perspective first, then the effects' passes. Without WebGL2 tilt stays 2D.
+      try {
+        this.post = make([createPerspectivePass(), ...passes])
+        this.perspective = true
+      } catch {
+        this.post = null
+      }
     }
+    if (!this.post && passes.length > 0) this.post = make(passes)
     this.resize(options.width, options.height)
     if (this.post) this.post.warmUp(g)
     // Warm-up frame. Chrome takes a different path the first time a source (offscreen image,
@@ -166,15 +193,22 @@ export class SceneRenderer implements FrameRenderer {
       }
     }
 
-    // 2. Camera, composed by effects.
+    // 2. Camera: the director's shot camera, then the effects compose on top.
     const camera: CameraTransform = { ...IDENTITY_CAMERA }
     const words = new WordCollector(layout.width, layout.height, layout.unit)
+    const director = this.director
     const base = createFrameContext(timeline, layout, frameIndex, this.fps, {
       time: time === baseTime ? undefined : time,
       camera,
       words: words.view(),
+      shot: director?.shotAt(time),
     })
+    director?.camera(time, base.beat, camera)
     for (const { effect, seed } of this.effects) effect.camera?.({ ...base, seed }, camera)
+    // Tilt rendered by the perspective pass: layers get the flat camera.
+    const layerCamera: CameraTransform =
+      this.perspective && hasTilt(camera) ? { ...camera, tiltX: 0, tiltY: 0 } : camera
+    const intensity = base.shot.intensity
 
     // 3. Layers.
     g.setTransform(1, 0, 0, 1, 0, 0)
@@ -184,15 +218,19 @@ export class SceneRenderer implements FrameRenderer {
     for (const entry of this.layers) {
       if (entry.opacity <= 0) continue
       let alpha = entry.opacity
-      let cam: CameraTransform | null = entry.camera ? camera : null
+      if (director) alpha *= director.layerAlpha(time, entry.id, entry.group)
+      if (alpha <= 0) continue
+      let cam: CameraTransform | null = entry.camera ? layerCamera : null
       if (entry.motion) {
         const m = entry.motion
         const state = layerMotionAt(m, timeline, time, base.beat)
         alpha = Math.min(alpha * state.alpha, 1)
         if (alpha <= 0) continue
         if (cam && m.depth !== undefined) cam = cameraAtDepth(cam, m.depth)
-        if (state.scale !== 1) {
-          cam = scaleCamera(cam ?? IDENTITY_CAMERA, state.scale, m.origin ?? [0.5, 0.5], layout)
+        // Beat kicks follow the shot intensity (quiet intro: softer, drop: harder).
+        const scale = 1 + (state.scale - 1) * intensity
+        if (scale !== 1) {
+          cam = scaleCamera(cam ?? IDENTITY_CAMERA, scale, m.origin ?? [0.5, 0.5], layout)
         }
       }
       g.save()
@@ -204,7 +242,12 @@ export class SceneRenderer implements FrameRenderer {
       g.restore()
     }
 
-    // 4. Overlays, then 5. post passes over the finished frame.
+    // 4. Transitions between sections, effect overlays, then 5. post passes over the frame.
+    if (director) {
+      g.save()
+      director.overlay(g, time, layout.width, layout.height)
+      g.restore()
+    }
     for (const { effect, seed } of this.effects) {
       if (!effect.overlay) continue
       g.save()
@@ -219,6 +262,8 @@ export class SceneRenderer implements FrameRenderer {
     for (const entry of this.effects) entry.effect.dispose?.()
     this.post?.dispose()
     this.post = null
+    this.director = null
+    this.perspective = false
     this.layers = []
     this.effects = []
     this.canvas = null
@@ -244,6 +289,7 @@ function scaleCamera(
   const ox = origin[0] * layout.width
   const oy = origin[1] * layout.height
   return {
+    ...c,
     zoom: c.zoom * s,
     rotation: c.rotation,
     x: ((ox - cx) * (1 - s)) / layout.unit + s * c.x,
@@ -263,7 +309,12 @@ export function createFrameContext(
   layout: Layout,
   frameIndex: number,
   fps: number,
-  extra: { time?: number; camera?: Readonly<CameraTransform>; words?: FrameWords } = {},
+  extra: {
+    time?: number
+    camera?: Readonly<CameraTransform>
+    words?: FrameWords
+    shot?: ShotState
+  } = {},
 ): FrameContext {
   const features = timeline.audio.features
   const baseTime = frameTime(frameIndex, fps)
@@ -285,6 +336,7 @@ export function createFrameContext(
     camera: extra.camera ?? IDENTITY_CAMERA,
     beat: beatAt(timeline, time),
     section: sectionAt(timeline, time),
+    shot: extra.shot ?? neutralShot(timeline, time),
     sample: (series) => sampleSeries(series, pos),
     band: (band) => sampleSeries(features.bands[band], pos),
     spectrumAt: (p, out) => sampleSpectrum(features, p, out),

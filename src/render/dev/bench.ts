@@ -30,7 +30,7 @@ export interface BenchResult {
 export const DEFAULT_BENCH_CASES: BenchCase[] = [
   { label: 'empty', scene: { layers: [] } },
   { label: 'default scene', scene: null },
-  ...(['studio', 'neon', 'minimal', 'grunge'] as const).map((id) => ({
+  ...(['studio', 'neon', 'minimal', 'grunge', 'fullscreen'] as const).map((id) => ({
     label: `preset ${id}`,
     scene: buildPresetScene(id, { title: 'Ночной город' }),
   })),

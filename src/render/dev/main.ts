@@ -3,20 +3,16 @@
  * format / fps switch, fps counter, determinism checks (main thread and OffscreenCanvas worker).
  * Wall-clock time is used only here, to pick which frame to show — never inside the renderer.
  * URL params preset the controls: ?preset=neon&format=1080x1920&fps=30&fx=style|demo|none&frame=N
- * (frame = paused on that frame)&safe=1.
+ * (frame = paused on that frame)&safe=1&seed=N&story=0|1. The line under the stats shows the
+ * director's shot (section role, layout, intensity) of the current frame.
  */
 
 import { frameCountFor, type FrameRate } from '@/shared'
 import { safeAreaInsets } from '../layout'
 import { SceneRenderer } from '../SceneRenderer'
-import { createFakeTimeline } from './fakeTimeline'
-import {
-  DEV_DURATION_SEC,
-  devEffectFactory,
-  devScene,
-  hashPixels,
-  type DevSceneOptions,
-} from './common'
+import { Director, neutralShot } from '../director'
+import { normalizeScene } from '../scene'
+import { devEffectFactory, devScene, devTimeline, hashPixels, type DevSceneOptions } from './common'
 import type { WorkerRequest } from './worker'
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T
@@ -28,20 +24,27 @@ const safeToggle = $<HTMLInputElement>('safeToggle')
 const fxToggle = $<HTMLInputElement>('fxToggle')
 const styleFxToggle = $<HTMLInputElement>('styleFxToggle')
 const presetSel = $<HTMLSelectElement>('preset')
+const seedInput = $<HTMLInputElement>('seed')
+const storyToggle = $<HTMLInputElement>('storyToggle')
+const shotEl = $<HTMLParagraphElement>('shot')
 const safeBox = $<HTMLDivElement>('safe')
 const playBtn = $<HTMLButtonElement>('play')
 const scrub = $<HTMLInputElement>('scrub')
 const stats = $<HTMLParagraphElement>('stats')
 const logEl = $<HTMLDivElement>('log')
 
-const timeline = createFakeTimeline({ durationSec: DEV_DURATION_SEC })
+let timeline = devTimeline({ story: true })
 const renderer = new SceneRenderer({ createEffect: devEffectFactory })
 const sceneOptions = (): DevSceneOptions => ({
   preset: presetSel.value,
   title: titleInput.value,
   demoEffects: fxToggle.checked,
   styleEffects: styleFxToggle.checked,
+  seed: seedInput.value === '' ? undefined : Math.max(0, Math.floor(Number(seedInput.value))),
+  story: storyToggle.checked,
 })
+/** A twin of the renderer's director, only to show the shot of the current frame. */
+let shotDirector: Director | null = null
 
 let width = 1080
 let height = 1920
@@ -66,6 +69,8 @@ if (query.has('fx')) {
   fxToggle.checked = fx === 'demo'
 }
 safeToggle.checked = query.get('safe') === '1'
+if (query.has('seed')) seedInput.value = query.get('seed') ?? ''
+if (query.has('story')) storyToggle.checked = query.get('story') !== '0'
 
 // Stats over the last second.
 let statWindowStart = performance.now()
@@ -82,16 +87,15 @@ async function setup() {
   width = w ?? 1080
   height = h ?? 1920
   fps = Number(fpsSel.value) as FrameRate
+  timeline = devTimeline(sceneOptions())
   frameCount = frameCountFor(timeline.audio.durationSec, fps)
   const keepTime = currentFrame / Math.max(fps, 1)
-  await renderer.init({
-    canvas,
-    width,
-    height,
-    fps,
-    timeline,
-    scene: devScene(sceneOptions()),
-  })
+  const scene = normalizeScene(devScene(sceneOptions()))
+  await renderer.init({ canvas, width, height, fps, timeline, scene })
+  const transitions = !scene.effects.some((e) => e.type === 'section-transitions')
+  const spec = scene.director ?? null
+  shotDirector = spec ? new Director(spec, scene.seed, timeline, { transitions }) : null
+  seedInput.placeholder = String(scene.seed)
   scrub.max = String(frameCount - 1)
   currentFrame = Math.min(Math.floor(keepTime * fps), frameCount - 1)
   anchorFrame = currentFrame
@@ -123,6 +127,7 @@ function tick(now: number) {
     renderMsInWindow += ms
     worstMsInWindow = Math.max(worstMsInWindow, ms)
     if (playing) scrub.value = String(currentFrame)
+    showShot(currentFrame / fps)
   }
   if (now - statWindowStart >= 1000) {
     const secs = (now - statWindowStart) / 1000
@@ -137,6 +142,17 @@ function tick(now: number) {
     worstMsInWindow = 0
   }
   requestAnimationFrame(tick)
+}
+
+function showShot(t: number) {
+  const shot = shotDirector?.shotAt(t) ?? neutralShot(timeline, t)
+  const tr = shotDirector?.transitionAt(t)
+  const n = timeline.audio.sections?.length ?? 0
+  shotEl.textContent =
+    `секция ${shot.index + 1}/${n} · роль ${shot.role} · раскладка ${shot.layout ?? '—'} · ` +
+    `интенсивность ${shot.intensity.toFixed(2)} · вход ${shot.enter.toFixed(2)}` +
+    (tr ? ` · переход ${tr.kind}` : '') +
+    (shotDirector ? '' : ' · без режиссёра')
 }
 
 /**
@@ -201,7 +217,14 @@ formatSel.onchange =
   fxToggle.onchange =
   styleFxToggle.onchange =
   presetSel.onchange =
+  seedInput.onchange =
+  storyToggle.onchange =
     () => void setup()
+$<HTMLButtonElement>('shuffle').onclick = () => {
+  // Wall clock only picks a new seed for the page; the renderer itself stays deterministic.
+  seedInput.value = String(Math.floor(Math.random() * 1e6))
+  void setup()
+}
 safeToggle.onchange = updateSafeBox
 playBtn.onclick = () => {
   playing = !playing

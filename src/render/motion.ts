@@ -94,9 +94,12 @@ export function layerMotionAt(
 export function cameraAtDepth(c: Readonly<CameraTransform>, depth: number): CameraTransform {
   if (depth === 1) return { ...c }
   return {
+    ...c,
     zoom: Math.pow(Math.max(c.zoom, 1e-3), depth),
     x: c.x * depth,
     y: c.y * depth,
     rotation: c.rotation * depth,
+    ...(c.tiltX !== undefined && { tiltX: c.tiltX * depth }),
+    ...(c.tiltY !== undefined && { tiltY: c.tiltY * depth }),
   }
 }
