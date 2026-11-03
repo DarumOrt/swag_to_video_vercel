@@ -4,7 +4,10 @@ import {
   applyTaps,
   lyricsFromRecognized,
   parseLrc,
+  autoSplitLong,
   beatGridFit,
+  mergeLines,
+  splitLine,
   GRID_AUTO_THRESHOLD,
   parseLyricsText,
   snapToBeatGrid,
@@ -386,6 +389,42 @@ export function updateWord(wordId: string, change: WordPatch) {
   commitLyrics(editWord(lyrics, wordId, change))
   forgetGridBase()
   patch({ edited: true })
+}
+
+/**
+ * Changes only the line structure (split / merge). Word ids and times stay, so accents, ranges and
+ * the beat grid keep working; the grid base gets the same change so toggling the grid stays exact.
+ */
+function restructure(change: (lyrics: Lyrics) => Lyrics) {
+  const lyrics = currentLyrics()
+  if (!lyrics) return
+  const { grid } = useLyricsStore.getState()
+  commitLyrics(change(lyrics))
+  if (grid.base) patch({ grid: { ...grid, base: change(grid.base) } })
+  patch({ edited: true })
+}
+
+/** Splits the line before this word. */
+export function splitLineAt(lineId: string, wordId: string) {
+  restructure((lyrics) => splitLine(lyrics, lineId, wordId))
+}
+
+/** Joins the line with the next one. */
+export function mergeLineWithNext(lineId: string) {
+  restructure((lyrics) => mergeLines(lyrics, lineId))
+}
+
+/** How many lines `autoSplitLong` would add to these lyrics. */
+export function autoSplitGain(lyrics: Lyrics): number {
+  return autoSplitLong(lyrics).lines.length - lyrics.lines.length
+}
+
+export function splitLongLines() {
+  const lyrics = currentLyrics()
+  if (!lyrics) return
+  const added = autoSplitGain(lyrics)
+  restructure((l) => autoSplitLong(l))
+  patch({ notice: { kind: 'info', text: t.lyrics.lines.autoSplitDone(added) } })
 }
 
 export function removeWord(wordId: string) {

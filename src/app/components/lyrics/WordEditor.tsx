@@ -1,10 +1,11 @@
-import { Clock, Play, Trash2, X } from 'lucide-react'
+import { Clock, Play, Scissors, Trash2, X } from 'lucide-react'
 import { useId, useState, type FormEvent } from 'react'
 import type { LyricWord } from '@/shared'
 import { Button, cn } from '@/ui'
 import { formatTimeInput, parseTimeInput } from '../../format'
 import { t } from '../../i18n'
-import { removeWord, selectWord, updateWord } from '../../lyricsActions'
+import { removeWord, selectWord, splitLineAt, updateWord } from '../../lyricsActions'
+import { useAppStore } from '../../store'
 import { playback } from '../../playback'
 import { WordAccentPicker } from '../accents/WordAccentPicker'
 
@@ -15,6 +16,11 @@ export function WordEditor({ word }: { word: LyricWord }) {
   const [start, setStart] = useState(word.start !== null ? formatTimeInput(word.start) : '')
   const [end, setEnd] = useState(word.end !== null ? formatTimeInput(word.end) : '')
   const [error, setError] = useState(false)
+  // The line this word starts in the middle of: splitting before the first word would do nothing.
+  const splitLineId = useAppStore((state) => {
+    const line = state.timeline?.lyrics?.lines.find((l) => l.words.some((w) => w.id === word.id))
+    return line && line.words[0]?.id !== word.id ? line.id : null
+  })
 
   function onSubmit(event: FormEvent) {
     event.preventDefault()
@@ -136,6 +142,16 @@ export function WordEditor({ word }: { word: LyricWord }) {
           }}
         >
           <Play />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          title={t.lyrics.editor.splitHere}
+          aria-label={t.lyrics.editor.splitHere}
+          disabled={!splitLineId}
+          onClick={() => splitLineId && splitLineAt(splitLineId, word.id)}
+        >
+          <Scissors />
         </Button>
         <Button
           size="sm"

@@ -1,10 +1,11 @@
+import { Merge } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { flattenWords, isUncertain, nextTapUnit } from '@/lyrics'
 import type { Accent, AccentEffectId, LyricWord, Lyrics } from '@/shared'
 import { cn } from '@/ui'
 import { formatTime } from '../../format'
 import { t } from '../../i18n'
-import { pickRangeEnd, selectWord } from '../../lyricsActions'
+import { mergeLineWithNext, pickRangeEnd, selectWord } from '../../lyricsActions'
 import { indexTimedWords, wordAt } from '../../lyricsEdit'
 import { useLyricsStore } from '../../lyricsStore'
 import { playback } from '../../playback'
@@ -68,10 +69,21 @@ export function WordList({ lyrics }: { lyrics: Lyrics }) {
             <div
               data-tap-id={line.id}
               className={cn(
-                'flex flex-wrap gap-0.5 rounded-md px-1 py-1 transition-colors duration-150',
+                'group/line flex flex-wrap gap-0.5 rounded-md px-1 py-1 transition-colors duration-150',
                 lineIsTarget && 'bg-accent-soft shadow-[inset_2px_0_0_var(--color-accent)]',
               )}
             >
+              {i < lyrics.lines.length - 1 && (
+                <button
+                  type="button"
+                  title={t.lyrics.lines.mergeNext}
+                  aria-label={t.lyrics.lines.mergeNext}
+                  onClick={() => mergeLineWithNext(line.id)}
+                  className="order-last ml-auto flex size-6 items-center justify-center self-center rounded-sm text-subtle opacity-0 hover:bg-hover hover:text-fg focus-visible:opacity-100 group-hover/line:opacity-100"
+                >
+                  <Merge className="size-3.5" aria-hidden />
+                </button>
+              )}
               {line.words.map((word) => (
                 <WordChip
                   key={word.id}

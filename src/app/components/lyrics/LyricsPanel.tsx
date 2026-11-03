@@ -1,5 +1,5 @@
 import { ClipboardPaste, FileDown, FileUp, Keyboard, Sparkles, Trash2, Wand2 } from 'lucide-react'
-import { useRef, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { flattenWords } from '@/lyrics'
 import { Button, cn } from '@/ui'
 import { t } from '../../i18n'
@@ -7,7 +7,9 @@ import {
   cancelRecognition,
   clearLyrics,
   exportLrc,
+  autoSplitGain,
   importLrc,
+  splitLongLines,
   realignLyrics,
   requestRecognition,
   setPasteOpen,
@@ -32,6 +34,8 @@ export function LyricsPanel() {
   const lrcInput = useRef<HTMLInputElement>(null)
   const counts = countWords(lyrics)
   const running = recognize.status === 'running'
+  const [confirmSplit, setConfirmSplit] = useState(false)
+  const splitGain = useMemo(() => (lyrics ? autoSplitGain(lyrics) : 0), [lyrics])
   const selected =
     lyrics && selectedWordId
       ? (flattenWords(lyrics).find((ref) => ref.word.id === selectedWordId)?.word ?? null)
@@ -143,6 +147,40 @@ export function LyricsPanel() {
           }
           error={recognize.status === 'error' || notice?.kind === 'error'}
         />
+        {lyrics && !tap && (
+          <div className="flex items-center gap-1.5">
+            {confirmSplit ? (
+              <>
+                <span className="text-xs text-muted">
+                  {t.lyrics.lines.autoSplitConfirm(splitGain)}
+                </span>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    splitLongLines()
+                    setConfirmSplit(false)
+                  }}
+                >
+                  {t.lyrics.lines.autoSplitDo}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setConfirmSplit(false)}>
+                  {t.lyrics.lines.autoSplitCancel}
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={splitGain === 0 || running}
+                title={splitGain === 0 ? t.lyrics.lines.autoSplitNone : undefined}
+                onClick={() => setConfirmSplit(true)}
+              >
+                {t.lyrics.lines.autoSplit}
+              </Button>
+            )}
+          </div>
+        )}
         {lyrics && counts.timed > 0 && <GridControls disabled={!!tap || running} />}
       </header>
 
