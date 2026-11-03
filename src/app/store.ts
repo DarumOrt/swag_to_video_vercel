@@ -4,6 +4,7 @@ import {
   DEFAULT_PRESET_ID,
   buildScene,
   presetDefaults,
+  type DirectorOverrides,
   type ParamValues,
   type Scene,
 } from './adapters'
@@ -44,7 +45,7 @@ export interface AppState {
   muted: boolean
   export: ExportState
   /** Selected style preset and its values. */
-  style: { presetId: string; values: ParamValues }
+  style: { presetId: string; values: ParamValues; seed: number; director: DirectorOverrides }
   /** Built from `style`; the same object goes to the preview and to export. */
   scene: Scene
 
@@ -59,7 +60,14 @@ export interface AppState {
   /** Switches preset; values reset to its defaults. */
   setPreset: (presetId: string) => void
   setStyleValue: (key: string, value: ParamValues[string]) => void
+  /** New scene seed (the director picks other layouts, camera and transitions). */
+  setSeed: (seed: number) => void
+  /** Random seed different from the current one. */
+  shuffleSeed: () => void
+  setDirector: (change: DirectorOverrides) => void
 }
+
+export const DEFAULT_SEED = 1
 
 export const IDLE_EXPORT: ExportState = { status: 'idle', progress: 0, etaSec: null, error: null }
 
@@ -72,7 +80,12 @@ export const useAppStore = create<AppState>()((set) => ({
   volume: 0.8,
   muted: false,
   export: IDLE_EXPORT,
-  style: { presetId: DEFAULT_PRESET_ID, values: presetDefaults(DEFAULT_PRESET_ID) },
+  style: {
+    presetId: DEFAULT_PRESET_ID,
+    values: presetDefaults(DEFAULT_PRESET_ID),
+    seed: DEFAULT_SEED,
+    director: {},
+  },
   scene: buildScene(DEFAULT_PRESET_ID, presetDefaults(DEFAULT_PRESET_ID)),
 
   setTrack: (track) => set({ track }),
@@ -83,16 +96,36 @@ export const useAppStore = create<AppState>()((set) => ({
   setVolume: (volume) => set({ volume, muted: false }),
   setMuted: (muted) => set({ muted }),
   setExport: (patch) => set((state) => ({ export: { ...state.export, ...patch } })),
-  setPreset: (presetId) => {
-    const values = presetDefaults(presetId)
-    set({ style: { presetId, values }, scene: buildScene(presetId, values) })
-  },
+  setPreset: (presetId) =>
+    set((state) => {
+      const values = presetDefaults(presetId)
+      const style = { presetId, values, seed: state.style.seed, director: {} }
+      return { style, scene: sceneOf(style) }
+    }),
   setStyleValue: (key, value) =>
     set((state) => {
-      const values = { ...state.style.values, [key]: value }
-      return {
-        style: { ...state.style, values },
-        scene: buildScene(state.style.presetId, values),
-      }
+      const style = { ...state.style, values: { ...state.style.values, [key]: value } }
+      return { style, scene: sceneOf(style) }
+    }),
+  setSeed: (seed) =>
+    set((state) => {
+      const style = { ...state.style, seed }
+      return { style, scene: sceneOf(style) }
+    }),
+  shuffleSeed: () =>
+    set((state) => {
+      let seed = state.style.seed
+      while (seed === state.style.seed) seed = 1 + Math.floor(Math.random() * 99_999)
+      const style = { ...state.style, seed }
+      return { style, scene: sceneOf(style) }
+    }),
+  setDirector: (change) =>
+    set((state) => {
+      const style = { ...state.style, director: { ...state.style.director, ...change } }
+      return { style, scene: sceneOf(style) }
     }),
 }))
+
+function sceneOf(style: AppState['style']): Scene {
+  return buildScene(style.presetId, style.values, { seed: style.seed, director: style.director })
+}

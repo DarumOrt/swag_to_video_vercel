@@ -2,7 +2,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { flattenWords, parseLyricsText } from '@/lyrics'
 import { createFakeTimeline } from '@/render'
 import type { AccentEffectId, Lyrics, Timeline } from '@/shared'
-import { regenerateAccents, removeAccent, setWordAccent, updateAccent } from './accentActions'
+import {
+  addWordAccent,
+  applyAccentToSameWords,
+  regenerateAccents,
+  removeAccent,
+  setAccentEnd,
+  updateAccent,
+} from './accentActions'
 import {
   ACCENT_EFFECTS,
   STYLE_PRESETS,
@@ -55,7 +62,7 @@ describe('accents', () => {
     expect(auto.every((a) => a.source === 'auto')).toBe(true)
 
     const userWord = wordIds()[1]!
-    setWordAccent(userWord, 'invert')
+    addWordAccent(userWord, 'invert')
     regenerateAccents()
     const after = accents()
     expect(after.filter((a) => a.wordId === userWord)).toEqual([
@@ -64,23 +71,48 @@ describe('accents', () => {
     expect(after.filter((a) => a.source === 'auto').every((a) => a.wordId !== userWord)).toBe(true)
   })
 
+  it('keeps several accents on one word', () => {
+    const word = wordIds()[2]!
+    const first = addWordAccent(word, 'flash')
+    const second = addWordAccent(word, 'shake')
+    expect(first).not.toBe(second)
+    expect(
+      accents()
+        .filter((a) => a.wordId === word)
+        .map((a) => a.effect),
+    ).toEqual(['flash', 'shake'])
+    removeAccent(first!)
+    expect(accents().map((a) => a.id)).toEqual([second])
+  })
+
+  it('sets and clears a range, refusing an end before the start', () => {
+    const ids = wordIds()
+    const id = addWordAccent(ids[4]!, 'mono')!
+    expect(setAccentEnd(id, ids[2]!)).toBe(false)
+    expect(accents()[0]!.endWordId).toBeUndefined()
+    expect(setAccentEnd(id, ids[7]!)).toBe(true)
+    expect(accents()[0]!.endWordId).toBe(ids[7])
+    expect(setAccentEnd(id, null)).toBe(true)
+    expect(accents()[0]!.endWordId).toBeUndefined()
+  })
+
   it('applies to all words with the same text', () => {
     const ids = wordIds()
-    setWordAccent(ids[1]!, 'flash', 0.4, true) // "ночного" appears in every line
+    const id = addWordAccent(ids[1]!, 'flash', { intensity: 0.4 })! // "ночного" is in every line
+    applyAccentToSameWords(id)
     const flashed = accents().filter((a) => a.effect === 'flash')
     expect(flashed).toHaveLength(4)
     expect(flashed.every((a) => a.intensity === 0.4)).toBe(true)
-    setWordAccent(ids[1]!, null, undefined, true)
-    expect(accents()).toHaveLength(0)
   })
 
-  it('edits make an accent a user accent; removal works', () => {
+  it('edits make an accent a user accent', () => {
     regenerateAccents()
     const first = accents()[0]!
-    updateAccent(first.wordId, { intensity: 0.2 })
-    expect(accents()[0]).toMatchObject({ intensity: 0.2, source: 'user' })
-    removeAccent(first.wordId)
-    expect(accents().find((a) => a.wordId === first.wordId)).toBeUndefined()
+    updateAccent(first.id, { intensity: 0.2 })
+    expect(accents().find((a) => a.id === first.id)).toMatchObject({
+      intensity: 0.2,
+      source: 'user',
+    })
   })
 })
 
@@ -95,16 +127,28 @@ const ACCENT_EFFECT_IDS = Object.keys({
   'fullscreen-word': 0,
   'slow-motion': 0,
   invert: 0,
+  mono: 0,
+  mirror: 0,
+  strobe: 0,
+  'rgb-split': 0,
+  vhs: 0,
+  'camera-orbit': 0,
 } satisfies Record<AccentEffectId, 0>)
 
 describe('style presets', () => {
   it('build valid scenes from their defaults', () => {
-    expect(STYLE_PRESETS.map((p) => p.id)).toEqual(['studio', 'neon', 'minimal', 'grunge'])
+    expect(STYLE_PRESETS.map((p) => p.id)).toEqual([
+      'studio',
+      'neon',
+      'minimal',
+      'grunge',
+      'fullscreen',
+    ])
     for (const preset of STYLE_PRESETS) {
       const scene = buildScene(preset.id, presetDefaults(preset.id))
       const types = scene.layers.map((l) => l.type)
       expect(types).toContain('background')
-      expect(types.some((t) => t === 'lyrics' || t === 'kinetic')).toBe(true)
+      expect(types.some((t) => t === 'lyrics' || t === 'kinetic' || t === 'fulltext')).toBe(true)
       expect(scene.effects.length).toBeGreaterThan(0)
     }
   })

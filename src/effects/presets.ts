@@ -1,5 +1,5 @@
 /**
- * Effect parts of the four style presets: which scene effects run, with which params, and
+ * Effect parts of the five style presets: which scene effects run, with which params, and
  * style-specific defaults for accent params. The render session's visual presets (background,
  * visualizers, fonts) take `styleEffects(id)` from `host.ts` as their `scene.effects`.
  *
@@ -10,7 +10,7 @@
 import type { AccentEffectId } from '@/shared'
 import type { LocalizedText, ParamValues } from './params'
 
-export type EffectStyleId = 'studio' | 'neon' | 'minimal' | 'grunge'
+export type EffectStyleId = 'studio' | 'neon' | 'minimal' | 'grunge' | 'edit'
 
 /** Effect types as in `host.ts` (kept as strings here to avoid a cycle). */
 export interface StyleEffect {
@@ -152,6 +152,38 @@ export const EFFECT_STYLES: Readonly<Record<EffectStyleId, EffectStylePreset>> =
     },
     suggestedAccents: ['glitch', 'shake', 'invert', 'zoom-punch', 'vhs', 'rgb-split'],
   },
+  edit: {
+    id: 'edit',
+    label: { ru: 'Монтажный эдит', en: 'Music edit' },
+    description: {
+      ru: 'Агрессивные склейки на секциях и строках, бит-камера с 3D-наклонами, строб и RGB на дропе',
+      en: 'Aggressive cuts on sections and lines, beat camera with 3D tilts, strobe and RGB in drops',
+    },
+    effects: [
+      { type: 'accents', params: { style: 'edit', font: 'display', fontWeight: 900 } },
+      {
+        type: 'beat-camera',
+        params: { amount: 0.04, shake: 0.012, rotation: 1.2, tilt: 5, sway: 0.004, decay: 0.11, dropBoost: 2.2 },
+      },
+      { type: 'section-transitions', params: { kinds: 'edit', amount: 1, durationSec: 0.32, lines: 0.65 } },
+      { type: 'drop-bursts', params: { amount: 0.85, density: 0.55, sections: 'peak' } },
+      { type: 'chromatic-aberration', params: { amount: 0.0025, beatPulse: 0.005 } },
+      { type: 'color-grade', params: { contrast: 1.18, saturation: 1.08, lift: 0.01 } },
+      { type: 'vignette', params: { amount: 0.4, softness: 0.5 } },
+      { type: 'grain', params: { amount: 0.07, size: 1.6 } },
+    ],
+    accentParams: {
+      'zoom-punch': { zoom: 0.22, rotate: 3, release: 'sharp' },
+      shake: { amplitude: 0.05, frequency: 22 },
+      glitch: { rgbSplit: 0.03, slices: 0.85, rate: 20 },
+      flash: { opacity: 0.9, blend: 'screen' },
+      strobe: { color: '#ffffff', division: 4, duty: 0.35 },
+      'rgb-split': { amount: 0.035, beatKick: 0.8 },
+      'camera-orbit': { yaw: 24, pitch: 10, speed: 0.5, zoom: 0.16 },
+      'fullscreen-word': { dim: 0.9, outline: false },
+    },
+    suggestedAccents: ['zoom-punch', 'glitch', 'strobe', 'rgb-split', 'camera-orbit', 'shake', 'flash'],
+  },
 }
 
-export const EFFECT_STYLE_ORDER: readonly EffectStyleId[] = ['studio', 'neon', 'minimal', 'grunge']
+export const EFFECT_STYLE_ORDER: readonly EffectStyleId[] = ['studio', 'neon', 'minimal', 'grunge', 'edit']

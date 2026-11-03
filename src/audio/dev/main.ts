@@ -35,6 +35,8 @@ const SECTION_COLORS: Record<SectionKind, string> = {
   drop: '#ef4444',
 }
 
+const GROUP_NAMES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
 let controller: AbortController | null = null
 let current: AnalyzeAudioResult | null = null
 let background: ImageBitmap | null = null
@@ -127,7 +129,7 @@ function showSummary(result: AnalyzeAudioResult, totalMs: number, marks: string[
     `${a.durationSec.toFixed(1)} с · ${a.sampleRate} Гц · ${a.channelCount} кан. · кадров ${a.features.frameCount} @ ${a.features.rate}`,
     `BPM ${r.bpm ?? '—'} · битов ${r.beats.length} · даунбитов ${r.downbeats.length} · onsets ${r.onsets.length} (${(r.onsets.length / d).toFixed(1)}/с) · vocal onsets ${r.vocalOnsets.length} (${(r.vocalOnsets.length / d).toFixed(1)}/с) · вокал ${Math.round(vocal * 100)}% в ${a.vocalActivity.length} участках`,
     `время ${totalMs} мс (${marks.join(', ')})${result.mono16k ? ` · 16 кГц: ${result.mono16k.length} сэмплов` : ''}`,
-    `секции: ${(a.sections ?? []).map((s) => `${formatTime(s.start)}–${formatTime(s.end)} ${s.kind} (${s.energy.toFixed(2)})`).join(' · ')}`,
+    `секции: ${(a.sections ?? []).map((s) => `${formatTime(s.start)}–${formatTime(s.end)} ${s.role ?? s.kind}${s.repeatGroup !== undefined ? ' ' + GROUP_NAMES[s.repeatGroup % GROUP_NAMES.length] : ''} (${s.energy.toFixed(2)})`).join(' · ')}`,
   ].join('\n')
 }
 
@@ -260,7 +262,10 @@ function drawSections(
     ctx.globalAlpha = 1
     if (x1 - x0 > 40) {
       ctx.fillStyle = '#000'
-      ctx.fillText(s.kind, Math.max(x0, 0) + 3, y + h - 2)
+      const label = s.role
+        ? `${s.role}${s.repeatGroup !== undefined ? ' ' + GROUP_NAMES[s.repeatGroup % GROUP_NAMES.length] : ''}`
+        : s.kind
+      ctx.fillText(label, Math.max(x0, 0) + 3, y + h - 2)
     }
   }
 }

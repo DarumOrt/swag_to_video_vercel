@@ -4,6 +4,7 @@ import { createRenderer } from '../adapters'
 import { t } from '../i18n'
 import { playback } from '../playback'
 import { useAppStore } from '../store'
+import { useThrottled } from '../useThrottled'
 import { TrackDropzone } from './TrackDropzone'
 
 /**
@@ -41,7 +42,8 @@ function PreviewCanvas() {
   const timeline = useAppStore((state) => state.timeline)
   const status = useAppStore((state) => state.analysis.status)
   const { width, height, fps } = useAppStore((state) => state.output)
-  const scene = useAppStore((state) => state.scene)
+  // Dragging a style slider changes the scene many times a second; rebuilding the renderer for each is too heavy.
+  const scene = useThrottled(useAppStore((state) => state.scene))
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {

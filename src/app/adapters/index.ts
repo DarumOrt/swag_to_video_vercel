@@ -38,6 +38,8 @@ export {
   buildScene,
   findPreset,
   presetDefaults,
+  type DirectorOverrides,
+  type SceneExtras,
   type StylePreset,
 } from './style'
 export { ACCENT_EFFECTS, effectInfo, type AccentEffectInfo } from './effects'

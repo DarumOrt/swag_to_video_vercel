@@ -1,17 +1,15 @@
 import { Play, RefreshCw, Trash2, WandSparkles } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { flattenWords, type AccentStyle } from '@/lyrics'
-import type { Accent, AccentEffectId, LyricWord } from '@/shared'
-import { Button, Segmented, Select, Slider, cn, type SegmentedOption } from '@/ui'
-import { previewAccent, regenerateAccents, removeAccent, updateAccent } from '../../accentActions'
-import { ACCENT_EFFECTS, effectInfo } from '../../adapters'
+import type { Accent, LyricWord } from '@/shared'
+import { Button, Segmented, cn, type SegmentedOption } from '@/ui'
+import { previewAccent, regenerateAccents, removeAccent } from '../../accentActions'
+import { effectInfo } from '../../adapters'
 import { formatTime } from '../../format'
 import { t } from '../../i18n'
 import { useAppStore } from '../../store'
-import { ParamControls } from '../ParamControls'
-import { EFFECT_ICONS } from './effectIcons'
-
-const EFFECT_OPTIONS = ACCENT_EFFECTS.map((effect) => ({ value: effect.id, label: effect.name }))
+import { AccentEditor } from './AccentEditor'
+import { EFFECT_ICONS, effectGroup, type EffectGroup } from './effectIcons'
 
 const STYLE_OPTIONS: SegmentedOption<AccentStyle>[] = [
   { value: 'minimal', label: t.accents.styles.minimal },
@@ -22,8 +20,7 @@ const STYLE_OPTIONS: SegmentedOption<AccentStyle>[] = [
 export function AccentsPanel() {
   const timeline = useAppStore((state) => state.timeline)
   const locked = useAppStore((state) => state.export.status === 'running')
-  // Keyed by word: editing turns an auto accent into a user one with a new id.
-  const [selectedWordId, setSelectedWordId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [style, setStyle] = useState<AccentStyle>('balanced')
   const lyrics = timeline?.lyrics ?? null
   const accents = useMemo(() => timeline?.accents ?? [], [timeline])
@@ -63,23 +60,32 @@ export function AccentsPanel() {
         </p>
       </div>
 
-      {accents.length > 0 && (
-        <ul className="-mx-2 flex flex-col gap-0.5" aria-label={t.accents.list}>
-          {accents.map((accent) => (
-            <AccentRow
-              key={accent.wordId}
-              accent={accent}
-              word={words.get(accent.wordId) ?? null}
-              selected={accent.wordId === selectedWordId}
-              disabled={locked}
-              onSelect={() => {
-                setSelectedWordId(accent.wordId === selectedWordId ? null : accent.wordId)
-                previewAccent(accent)
-              }}
-            />
-          ))}
-        </ul>
-      )}
+      {(['hits', 'modes'] as EffectGroup[]).map((group) => {
+        const items = accents.filter((accent) => effectGroup(accent.effect) === group)
+        if (!items.length) return null
+        return (
+          <section key={group} className="flex flex-col gap-1">
+            <h3 className="px-0.5 text-2xs font-semibold tracking-[0.08em] text-subtle uppercase">
+              {t.accents.groups[group]} · {items.length}
+            </h3>
+            <ul className="-mx-2 flex flex-col gap-0.5" aria-label={t.accents.groups[group]}>
+              {items.map((accent) => (
+                <AccentRow
+                  key={accent.id}
+                  accent={accent}
+                  word={words.get(accent.wordId) ?? null}
+                  selected={accent.id === selectedId}
+                  disabled={locked}
+                  onSelect={() => {
+                    setSelectedId(accent.id === selectedId ? null : accent.id)
+                    previewAccent(accent)
+                  }}
+                />
+              ))}
+            </ul>
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -99,6 +105,12 @@ function AccentRow({
 }) {
   const Icon = EFFECT_ICONS[accent.effect]
   const info = effectInfo(accent.effect)
+  const endWord = useAppStore((state) => {
+    const lyrics = accent.endWordId ? state.timeline?.lyrics : null
+    return lyrics
+      ? (flattenWords(lyrics).find((ref) => ref.word.id === accent.endWordId)?.word.text ?? null)
+      : null
+  })
   return (
     <li className={cn('rounded-md transition-colors duration-150', selected && 'bg-raised')}>
       <div className="flex items-center gap-1 pr-1">
@@ -115,6 +127,7 @@ function AccentRow({
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-medium">
               {word?.text ?? t.accents.missingWord}
+              {endWord && ` → ${endWord}`}
             </span>
             <span className="tabular block font-mono text-2xs text-subtle">
               {word?.start != null ? formatTime(word.start, true) : '—'} · {info.name}
@@ -130,47 +143,14 @@ function AccentRow({
           aria-label={t.accents.remove}
           title={t.accents.remove}
           disabled={disabled}
-          onClick={() => removeAccent(accent.wordId)}
+          onClick={() => removeAccent(accent.id)}
         >
           <Trash2 />
         </Button>
       </div>
       {selected && (
-        <div className="flex flex-col gap-3 px-2 pt-1 pb-3">
-          <Select
-            label={t.accents.effect}
-            value={accent.effect}
-            options={EFFECT_OPTIONS}
-            disabled={disabled}
-            onChange={(effect: AccentEffectId) => updateAccent(accent.wordId, { effect })}
-          />
-          <Slider
-            label={t.accents.intensity}
-            value={accent.intensity}
-            disabled={disabled}
-            onChange={(intensity) => updateAccent(accent.wordId, { intensity })}
-            format={(v) => `${Math.round(v * 100)}%`}
-          />
-          <Slider
-            label={t.accents.duration}
-            value={accent.durationSec}
-            min={0.1}
-            max={2}
-            step={0.05}
-            disabled={disabled}
-            onChange={(durationSec) => updateAccent(accent.wordId, { durationSec })}
-            format={(v) => `${v.toFixed(2)} с`}
-          />
-          {info.params.length > 0 && (
-            <ParamControls
-              schema={info.params}
-              values={accent.params}
-              disabled={disabled}
-              onChange={(key, value) =>
-                updateAccent(accent.wordId, { params: { ...accent.params, [key]: value } })
-              }
-            />
-          )}
+        <div className="px-2 pt-1 pb-3">
+          <AccentEditor accent={accent} disabled={disabled} />
         </div>
       )}
     </li>

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import type { RecognizedWord, TapMode, TapSession } from '@/lyrics'
+import type { BeatGridFit, GridDivision, RecognizedWord, TapMode, TapSession } from '@/lyrics'
+import type { Lyrics } from '@/shared'
 import type {
   ModelStatuses,
   RecognizeLanguage,
@@ -16,6 +17,25 @@ export type RecognizeStatus = 'idle' | 'running' | 'done' | 'error'
 
 /** Where the current lyrics came from: decides what "Распознать" does with them. */
 export type LyricsOrigin = 'recognized' | 'text' | 'lrc'
+
+/** Snapping of line starts to the beat grid. `base` = aligned lyrics the snap is computed from. */
+export interface GridState {
+  enabled: boolean
+  division: GridDivision
+  /** 0..1 */
+  strength: number
+  fit: BeatGridFit | null
+  /** null after manual edits: the snap is then recomputed from the current timings. */
+  base: Lyrics | null
+}
+
+export const INITIAL_GRID: GridState = {
+  enabled: false,
+  division: 8,
+  strength: 0.8,
+  fit: null,
+  base: null,
+}
 
 export interface LyricsEditorState {
   recognized: RecognizedWord[] | null
@@ -48,6 +68,9 @@ export interface LyricsEditorState {
   alignStats: { anchored: number; total: number } | null
   pasteOpen: boolean
   selectedWordId: string | null
+  grid: GridState
+  /** The user is choosing the last word of this accent's range by clicking in the word list. */
+  rangePick: { accentId: string } | null
   tapMode: TapMode
   tap: TapSession | null
   /** One-off message (e.g. a failed LRC import). */
@@ -71,6 +94,8 @@ export const INITIAL_LYRICS_EDITOR: LyricsEditorState = {
   alignStats: null,
   pasteOpen: false,
   selectedWordId: null,
+  grid: INITIAL_GRID,
+  rangePick: null,
   tapMode: 'line',
   tap: null,
   notice: null,

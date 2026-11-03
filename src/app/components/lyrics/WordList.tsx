@@ -1,15 +1,15 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
-import { isUncertain, nextTapUnit } from '@/lyrics'
-import type { AccentEffectId, LyricWord, Lyrics } from '@/shared'
+import { flattenWords, isUncertain, nextTapUnit } from '@/lyrics'
+import type { Accent, AccentEffectId, LyricWord, Lyrics } from '@/shared'
 import { cn } from '@/ui'
 import { formatTime } from '../../format'
 import { t } from '../../i18n'
-import { selectWord } from '../../lyricsActions'
+import { pickRangeEnd, selectWord } from '../../lyricsActions'
 import { indexTimedWords, wordAt } from '../../lyricsEdit'
 import { useLyricsStore } from '../../lyricsStore'
 import { playback } from '../../playback'
 import { useAppStore } from '../../store'
-import { EFFECT_ICONS } from '../accents/effectIcons'
+import { EFFECT_COLORS, EFFECT_ICONS } from '../accents/effectIcons'
 
 /**
  * Lines and words of the lyrics. The word under the playhead is marked imperatively
@@ -21,10 +21,12 @@ export function WordList({ lyrics }: { lyrics: Lyrics }) {
   const tapTarget = useLyricsStore((state) => (state.tap ? nextTapUnit(state.tap) : null))
   const index = useMemo(() => indexTimedWords(lyrics), [lyrics])
   const accents = useAppStore((state) => state.timeline?.accents)
-  const effectByWord = useMemo(
-    () => new Map((accents ?? []).map((accent) => [accent.wordId, accent.effect])),
-    [accents],
-  )
+  const marks = useMemo(() => wordMarks(lyrics, accents ?? []), [lyrics, accents])
+  const picking = useLyricsStore((state) => state.rangePick)
+  const pickStart = useMemo(() => {
+    const accent = picking && accents?.find((a) => a.id === picking.accentId)
+    return accent ? (marks.order.get(accent.wordId) ?? null) : null
+  }, [picking, accents, marks])
 
   useEffect(() => {
     const container = containerRef.current
@@ -76,7 +78,14 @@ export function WordList({ lyrics }: { lyrics: Lyrics }) {
                   word={word}
                   selected={word.id === selectedId}
                   tapTarget={tapTarget === word.id}
-                  effect={effectByWord.get(word.id) ?? null}
+                  marks={marks.byWord.get(word.id) ?? NO_MARKS}
+                  pick={
+                    pickStart === null
+                      ? null
+                      : (marks.order.get(word.id) ?? 0) >= pickStart
+                        ? 'ok'
+                        : 'invalid'
+                  }
                 />
               ))}
             </div>
@@ -87,23 +96,33 @@ export function WordList({ lyrics }: { lyrics: Lyrics }) {
   )
 }
 
-const WordChip = memo(function WordChip({
+const WordChip = memo(WordChipView, sameChip)
+
+function WordChipView({
   word,
   selected,
   tapTarget,
-  effect,
+  marks,
+  pick,
 }: {
   word: LyricWord
   selected: boolean
   tapTarget: boolean
-  effect: AccentEffectId | null
+  marks: WordMarks
+  /** While an accent range end is being chosen: whether this word may be the end. */
+  pick: 'ok' | 'invalid' | null
 }) {
+  const effect = marks.start[0] ?? null
   const EffectIcon = effect ? EFFECT_ICONS[effect] : null
   const uncertain = isUncertain(word)
   const timed = word.start !== null
   const time = timed ? formatTime(word.start!, true) : t.lyrics.noTime
 
   function onClick() {
+    if (pick) {
+      pickRangeEnd(word.id)
+      return
+    }
     if (playback.playing && timed) playback.seek(word.start!)
     else selectWord(selected ? null : word.id)
   }
@@ -115,11 +134,12 @@ const WordChip = memo(function WordChip({
       data-tap-id={word.id}
       aria-pressed={selected}
       aria-label={
-        t.lyrics.wordLabel(word.text, time) + (effect ? `, ${t.accents.title.toLowerCase()}` : '')
+        t.lyrics.wordLabel(word.text, time) +
+        (marks.start.length ? `, ${t.accents.count(marks.start.length).toLowerCase()}` : '')
       }
       onClick={onClick}
       className={cn(
-        'group flex flex-col items-start rounded-sm px-1.5 py-0.5 text-left',
+        'group relative flex flex-col items-start rounded-sm px-1.5 py-0.5 text-left',
         'transition-[background-color,color,box-shadow] duration-100 ease-out',
         'hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent',
         'data-active:bg-accent data-active:text-accent-fg',
@@ -127,6 +147,8 @@ const WordChip = memo(function WordChip({
         uncertain && 'bg-warn-soft',
         selected && 'shadow-[inset_0_0_0_1px_var(--color-accent)]',
         tapTarget && 'bg-accent-soft shadow-[inset_0_0_0_1px_var(--color-accent)]',
+        pick === 'ok' && 'ring-1 ring-accent/40',
+        pick === 'invalid' && 'cursor-not-allowed opacity-40 ring-1 ring-danger/60',
       )}
     >
       <span
@@ -142,6 +164,11 @@ const WordChip = memo(function WordChip({
             className="size-3 shrink-0 text-accent group-data-active:text-accent-fg"
           />
         )}
+        {marks.start.length > 1 && (
+          <span className="tabular rounded-full bg-accent px-1 font-mono text-[9px] leading-3 text-accent-fg">
+            {marks.start.length}
+          </span>
+        )}
       </span>
       <span
         className={cn(
@@ -151,6 +178,57 @@ const WordChip = memo(function WordChip({
       >
         {timed ? time : '—'}
       </span>
+      {marks.cover.length > 0 && (
+        <span aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 flex flex-col">
+          {marks.cover.map((cover, i) => (
+            <span key={i} className="h-[3px]" style={{ backgroundColor: EFFECT_COLORS[cover] }} />
+          ))}
+        </span>
+      )}
     </button>
   )
-})
+}
+
+function sameChip(
+  a: Parameters<typeof WordChipView>[0],
+  b: Parameters<typeof WordChipView>[0],
+): boolean {
+  return (
+    a.word === b.word &&
+    a.selected === b.selected &&
+    a.tapTarget === b.tapTarget &&
+    a.pick === b.pick &&
+    a.marks.sig === b.marks.sig
+  )
+}
+
+interface WordMarks {
+  /** Effects of accents that start on the word. */
+  start: AccentEffectId[]
+  /** Effects of range accents that cover the word (including its first and last word). */
+  cover: AccentEffectId[]
+  /** Content signature, so memoized chips skip re-rendering when their marks did not change. */
+  sig: string
+}
+
+const NO_MARKS: WordMarks = { start: [], cover: [], sig: '' }
+
+function wordMarks(lyrics: Lyrics, accents: readonly Accent[]) {
+  const order = new Map(flattenWords(lyrics).map((ref, i) => [ref.word.id, i]))
+  const ids = [...order.keys()]
+  const byWord = new Map<string, WordMarks>()
+  const get = (id: string) => {
+    let marks = byWord.get(id)
+    if (!marks) byWord.set(id, (marks = { start: [], cover: [], sig: '' }))
+    return marks
+  }
+  for (const accent of accents) {
+    get(accent.wordId).start.push(accent.effect)
+    const from = order.get(accent.wordId)
+    const to = accent.endWordId ? order.get(accent.endWordId) : undefined
+    if (from === undefined || to === undefined || to < from) continue
+    for (let i = from; i <= to; i++) get(ids[i]!).cover.push(accent.effect)
+  }
+  for (const marks of byWord.values()) marks.sig = marks.start.join() + '|' + marks.cover.join()
+  return { order, byWord }
+}

@@ -15,6 +15,12 @@ export interface CameraTransform {
   rotation: number
   x: number
   y: number
+  /**
+   * 3D lean about the horizontal axis / swing about the vertical axis, radians (optional; missing = 0).
+   * The engine renders them as perspective with `director.camera3d`, otherwise squashes the layers.
+   */
+  tiltX?: number
+  tiltY?: number
 }
 
 export const IDENTITY_CAMERA: Readonly<CameraTransform> = { zoom: 1, rotation: 0, x: 0, y: 0 }
@@ -101,7 +107,10 @@ export interface PostDynamics {
   vhs: number
   /** Changes when the VHS noise pattern should jump. */
   vhsSeed: number
-  /** Perspective tilt of the frame as a plane (camera orbit), radians: yaw (around Y), pitch (around X). */
+  /**
+   * Perspective tilt of the frame as a plane, radians: yaw (around Y), pitch (around X). Only a fallback
+   * for hosts without camera tilt (`CameraTransform.tiltX/tiltY`); see `tiltFallback` in host.ts.
+   */
   tiltYaw: number
   tiltPitch: number
 }
@@ -142,6 +151,16 @@ export function isNeutralPost(p: PostDynamics): boolean {
     p.tiltYaw === 0 &&
     p.tiltPitch === 0
   )
+}
+
+/** Composes `c` into `cam` (mutates): zoom multiplies, the rest adds. Tilt only when `tilt` is true. */
+export function composeCamera(cam: CameraTransform, c: Readonly<CameraTransform>, tilt = true): void {
+  cam.zoom *= c.zoom
+  cam.rotation += c.rotation
+  cam.x += c.x
+  cam.y += c.y
+  if (tilt && c.tiltX) cam.tiltX = (cam.tiltX ?? 0) + c.tiltX
+  if (tilt && c.tiltY) cam.tiltY = (cam.tiltY ?? 0) + c.tiltY
 }
 
 /** Adds RGB splits so two accents never cancel out: magnitudes add, the larger one keeps its sign. */

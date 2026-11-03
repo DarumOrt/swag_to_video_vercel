@@ -131,7 +131,7 @@ describe('modes', () => {
     ['mirror', (f) => f.post.mirror > 0.5 && f.post.mirrorMode === 'kaleido'],
     ['rgb-split', (f) => f.post.rgbSplit !== 0],
     ['vhs', (f) => f.post.vhs > 0.3],
-    ['camera-orbit', (f) => f.post.tiltYaw !== 0 || f.post.tiltPitch !== 0],
+    ['camera-orbit', (f) => (f.camera.tiltX ?? 0) !== 0 || (f.camera.tiltY ?? 0) !== 0],
   ])('%s contributes while active and is neutral outside', (effect, check) => {
     const tl = createFakeTimeline({ durationSec: 20 })
     const w = words(tl)[2]!

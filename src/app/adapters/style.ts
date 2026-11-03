@@ -44,7 +44,29 @@ export function presetDefaults(id: string): ParamValues {
   return defaultValues(findPreset(id).params)
 }
 
+/** Director knobs the user may override on top of the preset (only for presets with a director). */
+export interface DirectorOverrides {
+  energy?: number
+  chaos?: number
+  randomness?: number
+}
+
+export interface SceneExtras {
+  /** Scene seed: the same seed gives the same video. */
+  seed?: number
+  director?: DirectorOverrides
+}
+
 /** Scene for a preset and its values — one object shared by preview and export. */
-export function buildScene(presetId: string, values: ParamValues): Scene {
-  return normalizeScene(findPreset(presetId).build(values))
+export function buildScene(presetId: string, values: ParamValues, extras: SceneExtras = {}): Scene {
+  const input = findPreset(presetId).build(values)
+  const scene = normalizeScene(extras.seed === undefined ? input : { ...input, seed: extras.seed })
+  const overrides = extras.director
+  if (!scene.director || !overrides) return scene
+  const clamp = (v: number) => Math.min(1, Math.max(0, v))
+  const director = { ...scene.director }
+  if (overrides.energy !== undefined) director.energy = clamp(overrides.energy)
+  if (overrides.chaos !== undefined) director.chaos = clamp(overrides.chaos)
+  if (overrides.randomness !== undefined) director.randomness = clamp(overrides.randomness)
+  return { ...scene, director }
 }

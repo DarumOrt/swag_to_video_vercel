@@ -16,6 +16,7 @@ import {
 import { countWords } from '../../lyricsEdit'
 import { useLyricsStore, type LyricsEditorState } from '../../lyricsStore'
 import { useAppStore } from '../../store'
+import { GridControls } from './GridControls'
 import { PasteForm } from './PasteForm'
 import { RecognizePrompt } from './RecognizePrompt'
 import { TapBar } from './TapBar'
@@ -142,6 +143,7 @@ export function LyricsPanel() {
           }
           error={recognize.status === 'error' || notice?.kind === 'error'}
         />
+        {lyrics && counts.timed > 0 && <GridControls disabled={!!tap || running} />}
       </header>
 
       {prompt && <RecognizePrompt prompt={prompt} />}

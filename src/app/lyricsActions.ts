@@ -4,13 +4,17 @@ import {
   applyTaps,
   lyricsFromRecognized,
   parseLrc,
+  beatGridFit,
+  GRID_AUTO_THRESHOLD,
   parseLyricsText,
+  snapToBeatGrid,
   recordRelease,
   recordTap,
   snapToOnsets,
   startTapSession,
   toLrc,
   undoTap,
+  type GridDivision,
   type RecognizedWord,
   type TapMode,
 } from '@/lyrics'
@@ -25,9 +29,11 @@ import {
   type TranscribeQuality,
 } from './adapters'
 import { t } from './i18n'
+import { setAccentEnd } from './accentActions'
 import { carryUserTimings, deleteWord, editWord, type WordPatch } from './lyricsEdit'
 import {
   IDLE_RECOGNIZE,
+  INITIAL_GRID,
   INITIAL_LYRICS_EDITOR,
   useLyricsStore,
   type LyricsOrigin,
@@ -193,7 +199,7 @@ async function recognizeLyrics(quality: TranscribeQuality, language: RecognizeLa
     // User text wins: align it to what was heard. Otherwise show what was heard.
     if (lyrics && origin !== 'recognized') alignAndCommit(lyrics, words)
     else {
-      commitLyrics(lyricsFromRecognized(words), 'recognized')
+      commitAligned(lyricsFromRecognized(words), 'recognized')
       patch({ alignStats: null })
     }
   } catch (error) {
@@ -221,7 +227,7 @@ export function cancelRecognition() {
 function alignAndCommit(lyrics: Lyrics, recognized: readonly RecognizedWord[]) {
   const duration = useAppStore.getState().timeline?.audio.durationSec ?? null
   const result = alignLyrics(lyrics, recognized, { keepUserTimings: true, durationSec: duration })
-  commitLyrics(snapToOnsets(result.lyrics, vocalOnsets()))
+  commitAligned(snapToOnsets(result.lyrics, vocalOnsets()))
   patch({ alignStats: { anchored: result.anchoredCount, total: result.wordCount } })
 }
 
@@ -230,6 +236,60 @@ export function realignLyrics() {
   const lyrics = currentLyrics()
   const recognized = useLyricsStore.getState().recognized
   if (lyrics && recognized) alignAndCommit(lyrics, recognized)
+}
+
+// ---------------------------------------------------------------------------
+// Beat grid
+// ---------------------------------------------------------------------------
+
+function snapped(base: Lyrics): Lyrics {
+  const rhythm = useAppStore.getState().timeline?.audio.rhythm
+  const { grid } = useLyricsStore.getState()
+  return rhythm
+    ? snapToBeatGrid(base, rhythm, { division: grid.division, strength: grid.strength })
+    : base
+}
+
+/**
+ * Commits freshly aligned lyrics: measures how well the beat fits, turns the grid on by itself when
+ * it fits (score ≥ GRID_AUTO_THRESHOLD) and snaps from these aligned words, once.
+ */
+function commitAligned(aligned: Lyrics, origin?: LyricsOrigin | null) {
+  const rhythm = useAppStore.getState().timeline?.audio.rhythm
+  const fit = rhythm?.beats.length ? beatGridFit(aligned, rhythm) : null
+  const enabled = !!fit && fit.score >= GRID_AUTO_THRESHOLD
+  const previous = useLyricsStore.getState().grid
+  patch({
+    grid: {
+      ...previous,
+      fit,
+      enabled,
+      division: fit ? fit.suggestedDivision : previous.division,
+      base: aligned,
+    },
+  })
+  commitLyrics(enabled ? snapped(aligned) : aligned, origin)
+}
+
+/** Manual edits bake the current timings in: the next grid change starts from them. */
+function forgetGridBase() {
+  const { grid } = useLyricsStore.getState()
+  if (grid.base) patch({ grid: { ...grid, base: null } })
+}
+
+/** Toggle / division / strength. Recomputed from the aligned words, never stacked on a snap. */
+export function setGrid(change: { enabled?: boolean; division?: GridDivision; strength?: number }) {
+  const lyrics = currentLyrics()
+  const { grid } = useLyricsStore.getState()
+  if (!lyrics) return
+  const next = { ...grid, ...change }
+  const base = grid.base ?? lyrics
+  const rhythm = useAppStore.getState().timeline?.audio.rhythm
+  if (!grid.base) next.fit = rhythm?.beats.length ? beatGridFit(lyrics, rhythm) : null
+  next.base = base
+  patch({ grid: next })
+  if (next.enabled) commitLyrics(snapped(base))
+  else if (grid.enabled && grid.base) commitLyrics(base)
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +315,10 @@ export function applyPastedText(text: string) {
   const recognized = useLyricsStore.getState().recognized
   patch({ pasteOpen: false, selectedWordId: null, origin: 'text', alignStats: null })
   if (recognized) alignAndCommit(lyrics, recognized)
-  else commitLyrics(lyrics, 'text')
+  else {
+    patch({ grid: INITIAL_GRID })
+    commitLyrics(lyrics, 'text')
+  }
 }
 
 export function importLrc(text: string) {
@@ -265,7 +328,13 @@ export function importLrc(text: string) {
     return
   }
   commitLyrics(lyrics, 'lrc')
-  patch({ selectedWordId: null, alignStats: null, notice: null })
+  patch({
+    grid: INITIAL_GRID,
+    rangePick: null,
+    selectedWordId: null,
+    alignStats: null,
+    notice: null,
+  })
 }
 
 export function exportLrc(): string | null {
@@ -276,7 +345,14 @@ export function exportLrc(): string | null {
 export function clearLyrics() {
   stopTapSync(false)
   commitLyrics(null, null)
-  patch({ edited: false, selectedWordId: null, alignStats: null, notice: null })
+  patch({
+    grid: INITIAL_GRID,
+    rangePick: null,
+    edited: false,
+    selectedWordId: null,
+    alignStats: null,
+    notice: null,
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -287,10 +363,28 @@ export function selectWord(wordId: string | null) {
   patch({ selectedWordId: wordId })
 }
 
+/** Starts choosing the last word of an accent range (the next word click sets it). */
+export function startRangePick(accentId: string) {
+  patch({ rangePick: { accentId }, notice: null })
+}
+
+export function cancelRangePick() {
+  patch({ rangePick: null })
+}
+
+/** A word was clicked while choosing a range end. An invalid end keeps the choice open. */
+export function pickRangeEnd(wordId: string) {
+  const pick = useLyricsStore.getState().rangePick
+  if (!pick) return
+  if (setAccentEnd(pick.accentId, wordId)) patch({ rangePick: null, notice: null })
+  else patch({ notice: { kind: 'error', text: t.accents.rangeInvalid } })
+}
+
 export function updateWord(wordId: string, change: WordPatch) {
   const lyrics = currentLyrics()
   if (!lyrics) return
   commitLyrics(editWord(lyrics, wordId, change))
+  forgetGridBase()
   patch({ edited: true })
 }
 
@@ -298,6 +392,7 @@ export function removeWord(wordId: string) {
   const lyrics = currentLyrics()
   if (!lyrics) return
   commitLyrics(deleteWord(lyrics, wordId))
+  forgetGridBase()
   patch({ selectedWordId: null, edited: true })
 }
 
@@ -347,9 +442,10 @@ export function stopTapSync(apply = true) {
   const lyrics = currentLyrics()
   if (!apply || !lyrics || !session.taps.length) return
   const tapped = applyTaps(lyrics, session)
-  const snapped = snapToOnsets(tapped, vocalOnsets(), {
+  const snappedTaps = snapToOnsets(tapped, vocalOnsets(), {
     sources: [...DEFAULT_SNAP.sources, 'tap'],
   })
-  commitLyrics(snapped)
+  commitLyrics(snappedTaps)
+  forgetGridBase()
   patch({ edited: true, notice: { kind: 'info', text: t.lyrics.tapApplied(session.taps.length) } })
 }

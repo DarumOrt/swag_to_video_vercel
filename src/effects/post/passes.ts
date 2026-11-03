@@ -92,7 +92,7 @@ function bloomPass(params: ParamValues): PostPass {
   const strength = (f: FrameContext) =>
     num(params, 'strength') *
     (1 + num(params, 'beatPulse') * pulse(f)) *
-    glowScale(effectMood(f.timeline.audio, f.baseTime, params))
+    glowScale(effectMood(f.timeline.audio, f.baseTime, params, f.shot))
 
   const blurPass = (kit: PostKit, from: RenderTarget, to: RenderTarget, sx: number, sy: number) => {
     kit.bind(to)
@@ -148,7 +148,7 @@ function bloomPass(params: ParamValues): PostPass {
 /** Creates the pass for a post effect type with resolved params. */
 export function createPostPass(type: PostEffectType, params: ParamValues): PostPass {
   const n = (k: string) => num(params, k)
-  const mood = (f: FrameContext) => effectMood(f.timeline.audio, f.baseTime, params)
+  const mood = (f: FrameContext) => effectMood(f.timeline.audio, f.baseTime, params, f.shot)
   switch (type) {
     case 'bloom':
       return bloomPass(params)

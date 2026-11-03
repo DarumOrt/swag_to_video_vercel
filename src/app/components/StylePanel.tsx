@@ -1,8 +1,9 @@
 import { Check } from 'lucide-react'
+import { Dices } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { createFakeTimeline } from '@/render'
 import { type Timeline } from '@/shared'
-import { cn } from '@/ui'
+import { Button, Slider, cn } from '@/ui'
 import {
   STYLE_PRESETS,
   buildScene,
@@ -12,6 +13,7 @@ import {
 } from '../adapters'
 import { t } from '../i18n'
 import { useAppStore } from '../store'
+import { useThrottled } from '../useThrottled'
 import { ParamControls } from './ParamControls'
 
 export function StylePanel() {
@@ -35,6 +37,7 @@ export function StylePanel() {
         ))}
       </div>
       <p className="-mt-2 text-xs text-subtle">{preset.description}</p>
+      <DirectorControls schema={preset.params} locked={locked} />
       <ParamControls
         schema={preset.params}
         values={style.values}
@@ -42,6 +45,52 @@ export function StylePanel() {
         disabled={locked}
       />
     </div>
+  )
+}
+
+/** Seed ("Перемешать") and the director's knobs. Only for scenes that have a director. */
+function DirectorControls({
+  schema,
+  locked,
+}: {
+  schema: readonly { key: string }[]
+  locked: boolean
+}) {
+  const director = useAppStore((state) => state.scene.director)
+  const seed = useAppStore((state) => state.style.seed)
+  const shuffleSeed = useAppStore((state) => state.shuffleSeed)
+  const setDirector = useAppStore((state) => state.setDirector)
+  if (!director) return null
+  // A preset that already has "Энергия" / "Хаос" in its own form feeds them to the director itself.
+  const own = new Set(schema.map((param) => param.key))
+  const knobs = [
+    { key: 'energy', label: t.style.energy, value: director.energy },
+    { key: 'chaos', label: t.style.chaos, value: director.chaos },
+    { key: 'randomness', label: t.style.randomness, value: director.randomness },
+  ].filter((knob) => !own.has(knob.key))
+  return (
+    <fieldset className="flex flex-col gap-3" disabled={locked}>
+      <legend className="mb-3 text-2xs font-semibold tracking-[0.08em] text-subtle uppercase">
+        {t.style.director}
+      </legend>
+      <div className="flex items-center gap-2">
+        <Button variant="secondary" size="sm" title={t.style.shuffleHint} onClick={shuffleSeed}>
+          <Dices aria-hidden />
+          {t.style.shuffle}
+        </Button>
+        <span className="tabular font-mono text-2xs text-subtle">{t.style.seed(seed)}</span>
+      </div>
+      {knobs.map((knob) => (
+        <Slider
+          key={knob.key}
+          label={knob.label}
+          value={knob.value}
+          step={0.05}
+          onChange={(value) => setDirector({ [knob.key]: value })}
+          format={(v) => `${Math.round(v * 100)}%`}
+        />
+      ))}
+    </fieldset>
   )
 }
 
@@ -95,7 +144,7 @@ let fakeTimeline: Timeline | null = null
 function Thumbnail({ presetId, selected }: { presetId: string; selected: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   // The selected card shows the user's tweaks; the others show preset defaults.
-  const liveScene = useAppStore((state) => (selected ? state.scene : null))
+  const liveScene = useThrottled(useAppStore((state) => (selected ? state.scene : null)))
   const timeline = useAppStore((state) => state.timeline)
   const output = useAppStore((state) => state.output)
 

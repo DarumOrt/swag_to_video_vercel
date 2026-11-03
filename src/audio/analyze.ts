@@ -376,7 +376,23 @@ export function analyzePcmDetailed(
   const downbeats = pickDownbeats(beats, lowPower, timeToFrame)
   const bpm = tempo && beats.length > 0 ? Math.round(tempo.bpm * 100) / 100 : null
   const beatStrength = beatStrengths(beats, lowPower, flux, rate)
-  const sections = detectSections({ durationSec, rate, rms, lowPower, bpm, downbeats })
+  const sections = detectSections({
+    durationSec,
+    rate,
+    rms,
+    lowPower,
+    bpm,
+    downbeats,
+    spectrum: {
+      data: spectrum,
+      binCount: SPECTRUM_BINS,
+      minHz: SPECTRUM_MIN_HZ,
+      maxHz,
+      frameCount,
+      rate,
+    },
+    vocalActivity,
+  })
   const scope = computeScope(left, right, sampleRate, rate, frameCount)
 
   const features: FrameFeatures = {

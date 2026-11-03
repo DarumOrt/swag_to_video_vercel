@@ -1,5 +1,6 @@
-import type { AudioSection, SectionKind } from '@/shared'
+import type { AudioSection, SectionKind, TimeRange } from '@/shared'
 import { slidingMedian } from './median'
+import { buildStructure, type BarSpectrum } from './structure'
 import { clamp01, percentile } from './util'
 
 /*
@@ -151,6 +152,9 @@ export interface SectionInput {
   lowPower: Float64Array
   bpm: number | null
   downbeats: Float32Array
+  /** With these, sections also get `role` and `repeatGroup` (structure analysis). */
+  spectrum?: BarSpectrum
+  vocalActivity?: TimeRange[]
 }
 
 /**
@@ -325,6 +329,16 @@ export function detectSections(input: SectionInput): AudioSection[] {
   // their own energy).
   runs = runs.flatMap((run) => splitByEnergy(run, energy))
 
+  if (input.spectrum) {
+    return buildStructure({
+      boundaries,
+      energy,
+      runs,
+      spectrum: input.spectrum,
+      vocalActivity: input.vocalActivity ?? [],
+      durationSec,
+    })
+  }
   return runs.map((run) => ({
     start: boundaries[run.first]!,
     end: boundaries[run.last + 1]!,

@@ -28,7 +28,7 @@ import {
 
 export type StylePresetId = 'studio' | 'neon' | 'minimal' | 'grunge' | 'fullscreen'
 /** Effect styles in `@/effects` (EFFECT_STYLES). */
-export type EffectStyleRef = 'studio' | 'neon' | 'minimal' | 'grunge'
+export type EffectStyleRef = 'studio' | 'neon' | 'minimal' | 'grunge' | 'edit'
 
 export interface StylePreset {
   id: StylePresetId
@@ -710,7 +710,7 @@ const fullscreen: StylePreset = {
     ru: 'Как в edit-ах: слово на весь экран, поворот вертикально/горизонтально, визуализатор внутри букв, камера в 3D, каждая часть песни выглядит по-своему',
     en: 'Edit style: the word fills the screen, turns vertical/horizontal, the visualizer inside the letters, 3D camera, every part of the song looks different',
   },
-  effectStyle: 'minimal',
+  effectStyle: 'edit',
   params: [
     choice(
       'letters',

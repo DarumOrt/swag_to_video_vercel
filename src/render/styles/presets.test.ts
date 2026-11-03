@@ -36,7 +36,7 @@ describe('style presets', () => {
       'fullscreen',
     ])
     for (const p of STYLE_PRESETS) {
-      expect(p.effectStyle).toBe(p.id === 'fullscreen' ? 'minimal' : p.id)
+      expect(p.effectStyle).toBe(p.id === 'fullscreen' ? 'edit' : p.id)
     }
   })
 

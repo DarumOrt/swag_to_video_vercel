@@ -603,8 +603,9 @@ const cameraOrbit: AccentEffectDef = {
     // The orbit starts at a seeded angle so two orbits do not look the same.
     const theta = 2 * Math.PI * (num(c.params, 'speed') * (c.time - c.window.wordStart) + rand(c.seed, 11))
     const sin = Math.sin(theta)
-    out.post.tiltYaw += num(c.params, 'yaw') * DEG * sin * level
-    out.post.tiltPitch += num(c.params, 'pitch') * DEG * Math.cos(theta) * level
+    // Real camera tilt: perspective with a 3D scene, a 2D squash otherwise (the host decides).
+    out.camera.tiltY = (out.camera.tiltY ?? 0) + num(c.params, 'yaw') * DEG * sin * level
+    out.camera.tiltX = (out.camera.tiltX ?? 0) + num(c.params, 'pitch') * DEG * Math.cos(theta) * level
     out.camera.rotation += num(c.params, 'roll') * DEG * Math.sin(theta * 0.5 + 1) * level
     // Parallax: the picture drifts against the turn.
     out.camera.x -= 0.03 * sin * level

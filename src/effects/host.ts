@@ -6,7 +6,13 @@
  *   beat-camera          — camera pulse / kick / sway on beats, boosted in drops
  *   beat-flash           — overlay flash on strong beats
  *   section-transitions  — a short flash / glitch / zoom / whip at section starts, picked by the seed
+ *                          (optionally also at lyric line starts: `lines`)
+ *   drop-bursts          — seeded series of strobe blinks / RGB splits on beats inside drops
  *   bloom, chromatic-aberration, color-grade, vignette, scanlines, grain — WebGL2 post passes
+ *
+ * Section-aware effects read `FrameContext.shot` (the director's shot) when the host provides it.
+ * Camera tilt goes to `CameraTransform.tiltX/tiltY`; only a host without them (no `shot` either —
+ * both came in the same engine version) gets the accent pass homography instead (`tiltFallback`).
  *
  * Effects keep no state between frames. The `accents` effect memoizes the last evaluated time
  * (the engine calls several hooks per frame); that is a pure cache, not carried state.
@@ -18,15 +24,29 @@ import type { Effect, EffectFactory, EffectSpec } from '@/render/effectsHost'
 import type { FrameContext } from '@/render'
 import { evaluateAccents, prepareAccents, type PreparedAccents } from './evaluate'
 import { drawOverlays } from './overlay'
-import { resolveParams, str, type LocalizedText, type ParamSpec, type ParamValues } from './params'
+import { num, resolveParams, str, type LocalizedText, type ParamSpec, type ParamValues } from './params'
+import { BURST_PARAMS, burstAt, type BurstFrame } from './bursts'
 import { accentsPass, createPostPass } from './post/passes'
 import { POST_EFFECTS, type PostEffectType } from './post/settings'
 import { EFFECT_STYLE_ORDER, EFFECT_STYLES, type EffectStyleId } from './presets'
 import { applyBeatCamera, BEAT_CAMERA_PARAMS, BEAT_FLASH_PARAMS, beatFlash } from './rhythm'
-import { planTransitions, TRANSITION_PARAMS, transitionAt, type SectionTransition, type TransitionFrame } from './sections'
-import { isNeutralPost, type AccentFrame, type OverlayItem } from './types'
+import {
+  planLineTransitions,
+  shotGain,
+  TRANSITION_PARAMS,
+  transitionAt,
+  type SectionTransition,
+  type TransitionFrame,
+} from './sections'
+import { composeCamera, isNeutralPost, type AccentFrame, type OverlayItem, type PostDynamics } from './types'
 
-export type EffectType = 'accents' | 'beat-camera' | 'beat-flash' | 'section-transitions' | PostEffectType
+export type EffectType =
+  | 'accents'
+  | 'beat-camera'
+  | 'beat-flash'
+  | 'section-transitions'
+  | 'drop-bursts'
+  | PostEffectType
 
 export type EffectHook = 'time' | 'camera' | 'overlay' | 'post'
 
@@ -114,6 +134,16 @@ export const EFFECT_TYPES: Readonly<Record<EffectType, EffectTypeInfo>> = {
     params: TRANSITION_PARAMS,
     hooks: ['camera', 'overlay', 'post'],
   },
+  'drop-bursts': {
+    type: 'drop-bursts',
+    label: { ru: 'Серии на дропе', en: 'Drop bursts' },
+    description: {
+      ru: 'Короткие серии строба или RGB-сдвига на долях внутри дропа; рисунок зависит от сида сцены',
+      en: 'Short strobe or RGB-split series on beats inside drops; the pattern follows the scene seed',
+    },
+    params: BURST_PARAMS,
+    hooks: ['camera', 'overlay', 'post'],
+  },
   ...(Object.fromEntries(
     (Object.keys(POST_EFFECTS) as PostEffectType[]).map((type) => [
       type,
@@ -143,56 +173,98 @@ export const createEffect: EffectFactory = (spec, { seed }) => {
     case 'beat-camera':
       return {
         id: spec.id,
-        camera: (f, cam) => applyBeatCamera(f.timeline.audio, f.baseTime, params, seed, cam),
+        camera: (f, cam) => applyBeatCamera(f.timeline.audio, f.baseTime, params, seed, cam, f.shot),
       }
     case 'beat-flash':
       return {
         id: spec.id,
         overlay(g, f) {
-          const flash = beatFlash(f.timeline.audio, f.baseTime, params)
+          const flash = beatFlash(f.timeline.audio, f.baseTime, params, f.shot)
           if (flash) drawOverlays(g, [flash], f.layout)
         },
       }
     case 'section-transitions':
       return transitionsEffect(spec.id, params, seed)
+    case 'drop-bursts':
+      return burstsEffect(spec.id, params, seed)
     default:
       return { id: spec.id, post: createPostPass(spec.type, params) }
   }
 }
 
-function transitionsEffect(id: string, params: ParamValues, seed: number): Effect {
-  let plan: { sections: Timeline['audio']['sections']; list: SectionTransition[] } | null = null
-  let memo: { timeline: Timeline; time: number; frame: TransitionFrame } | null = null
-  const at = (timeline: Timeline, time: number): TransitionFrame => {
-    if (memo && memo.timeline === timeline && memo.time === time) return memo.frame
-    const sections = timeline.audio.sections
-    const current =
-      plan && plan.sections === sections ? plan : { sections, list: planTransitions(sections, seed, str(params, 'kinds')) }
-    plan = current
-    const frame = transitionAt(current.list, time, params, seed)
-    memo = { timeline, time, frame }
+/** True when the host renders `CameraTransform.tiltX/tiltY` (engines with a director shot do). */
+function hostHasTilt(f: FrameContext): boolean {
+  return (f as Partial<FrameContext>).shot !== undefined
+}
+
+/** Effect with camera / overlay / post from one memoized per-frame result. */
+function framedEffect<T extends { camera: AccentFrame['camera']; post: PostDynamics }>(
+  id: string,
+  compute: (f: FrameContext) => T,
+  overlays: (frame: T) => OverlayItem[],
+  extra: Partial<Effect> = {},
+): Effect & { at(f: FrameContext): T } {
+  let memo: { timeline: Timeline; time: number; shot: unknown; frame: T } | null = null
+  const at = (f: FrameContext): T => {
+    if (memo && memo.timeline === f.timeline && memo.time === f.baseTime && memo.shot === f.shot) return memo.frame
+    const frame = compute(f)
+    memo = { timeline: f.timeline, time: f.baseTime, shot: f.shot, frame }
     return frame
   }
-  const pass = accentsPass((f) => at(f.timeline, f.baseTime).post)
+  const pass = accentsPass((f) => at(f).post)
   return {
     id,
+    at,
     camera(f, cam) {
-      const c = at(f.timeline, f.baseTime).camera
-      cam.zoom *= c.zoom
-      cam.rotation += c.rotation
-      cam.x += c.x
-      cam.y += c.y
+      composeCamera(cam, at(f).camera)
     },
     overlay(g, f) {
-      const flash = at(f.timeline, f.baseTime).flash
-      if (flash) drawOverlays(g, [flash], f.layout)
+      const items = overlays(at(f))
+      if (items.length > 0) drawOverlays(g, items, f.layout)
     },
-    post: { ...pass, active: (f) => !isNeutralPost(at(f.timeline, f.baseTime).post) },
+    post: { ...pass, active: (f) => !isNeutralPost(at(f).post) },
+    ...extra,
     dispose() {
-      plan = null
       memo = null
+      extra.dispose?.()
     },
   }
+}
+
+function transitionsEffect(id: string, params: ParamValues, seed: number): Effect {
+  type Plan = { sections: Timeline['audio']['sections']; lyrics: Timeline['lyrics']; list: SectionTransition[] }
+  let plan: Plan | null = null
+  const kinds = str(params, 'kinds')
+  const lines = num(params, 'lines') > 0
+  const compute = (f: FrameContext): TransitionFrame => {
+    const sections = f.timeline.audio.sections
+    const lyrics = f.timeline.lyrics
+    if (!plan || plan.sections !== sections || plan.lyrics !== lyrics) {
+      plan = { sections, lyrics, list: planLineTransitions(sections, lines ? lyrics?.lines : undefined, seed, kinds) }
+    }
+    // Cuts sit on the section starts = the director's shot changes; the shot intensity scales them.
+    return transitionAt(plan.list, f.baseTime, params, seed, shotGain(f.shot))
+  }
+  return framedEffect(id, compute, (fr) => (fr.flash ? [fr.flash] : []), {
+    dispose() {
+      plan = null
+    },
+  })
+}
+
+function burstsEffect(id: string, params: ParamValues, seed: number): Effect {
+  const compute = (f: FrameContext): BurstFrame => burstAt(f.timeline.audio, f.baseTime, params, seed, f.shot)
+  return framedEffect(id, compute, (fr) => (fr.flash ? [fr.flash] : []))
+}
+
+/**
+ * Camera tilt the host cannot render goes to the accent pass homography (the frame tilts as a
+ * plane); with tilt support the post pass leaves it alone.
+ */
+function tiltFallback(frame: AccentFrame, hasTilt: boolean): PostDynamics {
+  const { tiltX = 0, tiltY = 0 } = frame.camera
+  if (hasTilt || (tiltX === 0 && tiltY === 0)) return frame.post
+  return { ...frame.post, tiltYaw: frame.post.tiltYaw + tiltY, tiltPitch: frame.post.tiltPitch + tiltX }
 }
 
 function accentsEffect(id: string, params: ParamValues, seed: number): Effect {
@@ -221,7 +293,8 @@ function accentsEffect(id: string, params: ParamValues, seed: number): Effect {
     return frame
   }
 
-  const pass = accentsPass((f) => at(f.timeline, f.baseTime).post)
+  const post = (f: FrameContext) => tiltFallback(at(f.timeline, f.baseTime), hostHasTilt(f))
+  const pass = accentsPass(post)
   return {
     id,
     remapTime(time, info) {
@@ -229,17 +302,13 @@ function accentsEffect(id: string, params: ParamValues, seed: number): Effect {
       return lag > 0 ? Math.max(0, time - lag) : time
     },
     camera(f, cam) {
-      const c = at(f.timeline, f.baseTime).camera
-      cam.zoom *= c.zoom
-      cam.rotation += c.rotation
-      cam.x += c.x
-      cam.y += c.y
+      composeCamera(cam, at(f.timeline, f.baseTime).camera, hostHasTilt(f))
     },
     overlay(g, f) {
       const items = at(f.timeline, f.baseTime).overlays
       if (items.length > 0) drawOverlays(g, items.map((item) => atWord(item, f)), f.layout, overlay)
     },
-    post: { ...pass, active: (f) => !isNeutralPost(at(f.timeline, f.baseTime).post) },
+    post: { ...pass, active: (f) => !isNeutralPost(post(f)) },
     dispose() {
       prepared = null
       memo = null
