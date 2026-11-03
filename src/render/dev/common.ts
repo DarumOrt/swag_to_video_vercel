@@ -21,6 +21,10 @@ export interface DevSceneOptions {
   seed?: number
   /** Story sections in the fake timeline (roles intro … outro, repeat groups). */
   story?: boolean
+  /** Text reveal / animation / scale overrides ('' = the preset's own). */
+  textMode?: string
+  textAnim?: string
+  textScale?: number
 }
 
 /** Fake timeline of the dev page (and its worker) for the given options. */
@@ -33,7 +37,7 @@ export function devScene(o: DevSceneOptions): SceneInput {
   if (o.preset !== 'default') {
     const styleFx = (effectsModule as { styleEffects?: (id: string) => EffectSpec[] }).styleEffects
     if (o.styleEffects && styleFx) effects.push(...styleFx(getStylePreset(o.preset).effectStyle))
-    const scene = buildPresetScene(o.preset, { title: o.title })
+    const scene = buildPresetScene(o.preset, { title: o.title, ...textValues(o) })
     return { ...scene, effects, seed: o.seed ?? scene.seed }
   }
   return {
@@ -42,10 +46,25 @@ export function devScene(o: DevSceneOptions): SceneInput {
       { id: 'bg', type: 'background' },
       { id: 'spectrum', type: 'spectrum-bars' },
       { id: 'title', type: 'text', text: o.title },
-      { id: 'lyrics', type: 'lyrics' },
+      {
+        id: 'lyrics',
+        type: 'lyrics',
+        ...(o.textMode ? { reveal: o.textMode as 'word' } : {}),
+        ...(o.textAnim ? { anim: o.textAnim as 'fade' } : {}),
+        scale: o.textScale ?? 1,
+      },
     ],
     effects,
   }
+}
+
+/** Preset values for the text overrides (a mode the preset does not offer falls back to its default). */
+function textValues(o: DevSceneOptions): Record<string, string | number> {
+  const v: Record<string, string | number> = {}
+  if (o.textMode) v.textMode = o.textMode
+  if (o.textAnim) v.textAnim = o.textAnim
+  if (o.textScale !== undefined) v.textScale = o.textScale
+  return v
 }
 
 /** Sample effects first, then the real `@/effects` factory (when it exists). */

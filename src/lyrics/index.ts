@@ -71,6 +71,7 @@ export {
   type GridMode,
   type GridSnapOptions,
 } from './grid'
+export { autoSplitLong, mergeLines, splitLine, splitLineEvery, type AutoSplitOptions } from './split'
 export { editWord, retimeFrom, shiftLine, type RetimeResult, type WordEdit } from './edit'
 export {
   ACCENT_STYLES,

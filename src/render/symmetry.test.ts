@@ -178,6 +178,8 @@ const CONTENT_TYPES = new Set([
 function forContentCheck(l: LayerSpec): LayerSpec {
   if (l.type === 'goniometer') return { ...l, grid: true, labels: false, gain: 0 }
   if (l.type === 'kinetic') return { ...l, jitter: 0, jitterRotate: 0, tear: 0 }
+  // Appearing modes draw a line partially on purpose (only the words sung so far): check the whole line.
+  if (l.type === 'lyrics') return { ...l, reveal: 'line', anim: 'none' }
   return l
 }
 

@@ -1,32 +1,36 @@
-# Рендер-движок и визуализация — отчёт (вехи 1–4)
+# Рендер-движок и визуализация — отчёт (вехи 1–4 + показ текста)
 
-Код: `src/render/`, `src/visualizers/`. Стенд `dev/render.html` (порт 5177; `?preset=fullscreen&format=1080x1920&fps=30&fx=style|demo|none&frame=N&safe=1&seed=N&story=0|1`; поле «Сид», 🎲 «Перемешать», «сюжетные секции», строка текущей сцены: роль/раскладка/интенсивность/переход). Бенчмарки `e2e/render/frame-cost.spec.ts`.
+Код: `src/render/`, `src/visualizers/`. Стенд `dev/render.html` (порт 5177; `?preset=…&format=1080x1920&fps=30&fx=style|demo|none&frame=N&safe=1&seed=N&story=0|1&text=<режим>&anim=<анимация>&scale=1.5`; поля «Сид», 🎲, «сюжетные секции», «Текст», «Анимация», «Масштаб», строка текущей сцены). Бенчмарки `e2e/render/frame-cost.spec.ts`.
 
 ## Публичный API (`@/render`)
 
-- `SceneRenderer` (`FrameRenderer`: `init`/`renderFrame(N)`/`resize`/`dispose`), HTMLCanvas и OffscreenCanvas. `Scene` = `{ version, seed, safeArea, layers, effects, director? }`; `normalizeScene()`, `buildPresetScene(id, values)`, `STYLE_PRESETS` (studio, neon, minimal, grunge, **fullscreen**), `LAYER_SCHEMAS`, `ParamSpec`, шрифты `FONT_FAMILY`.
-- Слои: background, noise, 8 визуализаторов, text, lyrics, kinetic, **fulltext**. `RectSpec.space`: safe/center/bleed/frame. `motion` любого слоя: секции, удар на бите (теперь × `shot.intensity`), depth.
-- **Режиссёр** (`director.ts`, `Scene.director: DirectorSpec | null`): `{ energy, chaos, randomness, transitionSec, transitions: 'auto'|kind, camera3d, scenes: {роль → ShotSpec} }`. `ShotSpec` = `{ intensity, groups {background|visual|text → прозрачность}, layers {id → прозрачность}, layout (строка или список — выбор по сиду), camera {zoom, push, drift, roll, tilt, orbit, punch}, transition }` поверх встроенных `ROLE_SHOTS`. Роль — `sectionRole()` из контракта. Вид секции сидится по `repeatGroup` (припевы похожи), переход — по индексу. Плавный кроссфейд параметров за `transitionSec`. Переходы: cut/fade/flash/zoom/whip/glitch.
-- `FrameContext.shot: ShotState` — `{ role, index, start, end, progress, enter, variant, intensity, layout, energy, chaos }`; без режиссёра — `neutralShot` (роль есть, уровни нейтральны). Слои kinetic/fulltext берут `shot.layout`, если это их режим.
-- Камера: `CameraTransform.tiltX/tiltY?` (рад., необязательные). С `director.camera3d` — настоящая перспектива: движковый WebGL-проход `perspective.ts` первым в цепочке (плоскость кадра в пинхол-камере, масштаб «покрытия», без пустых краёв), слоям камера отдаётся без наклона. Без 3D — 2D-аппроксимация (сжатие на cos в `applyCamera`/`projectWord`, `cameraScale()`).
-- Пресеты получили мягкого режиссёра: studio (0.3/0.15), neon (0.6/0.35), minimal (+ раскладка по секциям, параметр `directed`), grunge (0.8/0.5, focus на дропах). **fullscreen**: слово/фраза/столбик на весь экран, ориентация чередуется (или по сиду), «видео внутри букв» (кадр под текстом копируется в маску букв, вокруг затемнение), эхо-контуры на битах, вход «удар» или «из-под маски», 3D-камера, у каждой роли своя раскладка; параметры: буквы, ориентация, шрифт, эхо, цвета, визуализатор, энергия, хаос, 3D.
-- Точки расширения эффектов (`effectsHost.ts`) без изменений по форме; `f.words` заполняет и fulltext (с учётом поворота 90°).
+- `SceneRenderer` (`FrameRenderer`: `init`/`renderFrame(N)`/`resize`/`dispose`), HTMLCanvas и OffscreenCanvas. `Scene` = `{ version, seed, safeArea, layers, effects, director? }`; `normalizeScene()`, `buildPresetScene(id, values)`, `STYLE_PRESETS` (studio, neon, minimal, grunge, fullscreen), `LAYER_SCHEMAS`, `ParamSpec`, `FONT_FAMILY`.
+- Слои: background, noise, 8 визуализаторов, text, lyrics, kinetic, fulltext. `RectSpec.space`: safe/center/bleed/frame. `motion` любого слоя: секции, удар на бите (× `shot.intensity`), depth.
+- **Показ текста** (`layers/textReveal.ts`, экспорт `TextReveal`/`TEXT_REVEALS`, `TextAnim`/`TEXT_ANIMS`, `LineExit`, `clampTextScale`):
+  - `lyrics.reveal`: `karaoke` (как было: подсветка, превью, прокрутка) | `word` (слова по таймингу, остаются до ухода строки) | `word-solo` (только текущее слово, по центру, отдельно вписано) | `line` (строка целиком на lead-in) | `typewriter` (буквы в пределах тайминга слова, ≥0.06 с/буква) | `pop` (отскок с перелётом масштаба). В не-караоке строки стоят на месте, превью нет.
+  - `anim`: fade / slide-up / scale / blur / none + `animSec` — вход слов и выход строки. `exit`: `line-end` (после последнего слова + `holdSec`, но не позже показа следующей) | `next-line` (держится в паузах до следующей).
+  - `scale` 0.5–2.5 (lyrics и kinetic) × `fontSize`. Автоподгонка lyrics: область = ширина rect ∩ safe-area и высота до краёв safe-area от якоря; сначала перенос (до `ceil(maxRows·scale)` строк), потом ужатие. Kinetic вписывается в свой rect (он внутри safe-area).
+  - `kinetic.reveal`: word | line | typewriter | pop (+ `anim`, `scale`; «одно слово» = раскладка `focus`). Выход строки kinetic тоже через `anim`.
+  - `fulltext` — режимы свои; в схему добавлен `futureOpacity`.
+  - `f.words` во всех режимах — только видимые слова, с учётом анимации (сдвиг, масштаб) и `scale`.
+- Параметры пресетов (группа «Текст»): `textMode`, `textAnim`, `textScale`, у studio/neon ещё `lineExit`. Значения по умолчанию: **studio — typewriter/fade, neon — word/blur, minimal — word/slide-up, grunge — pop/scale**, fullscreen — `textMode` word (будущие слова скрыты, было 0.15) | karaoke, `textScale` → `fill`/`maxHeight`. Караоке больше нигде не по умолчанию (слой `lyrics` без пресета — по-прежнему karaoke).
+- **Режиссёр** (`director.ts`): `{ energy, chaos, randomness, transitionSec, transitions, camera3d, scenes: {роль → ShotSpec} }`, `ShotSpec` = `{ intensity, groups, layers, layout, camera, transition }` поверх `ROLE_SHOTS`; вид секции сидится по `repeatGroup`; переходы cut/fade/flash/zoom/whip/glitch. `FrameContext.shot: ShotState`; kinetic/fulltext берут `shot.layout`.
+- Камера: `tiltX/tiltY?`; с `camera3d` — WebGL-проход `perspective.ts`, без 3D — 2D-аппроксимация. Точки расширения эффектов (`effectsHost.ts`) без изменений.
 
 ## Готово / проверено
 
-Вехи 1–3 (движок, визуализаторы, лирика, кинетика, 4 пресета, центровка) + веха 4: режиссёр, fulltext, перспектива, стенд. Тесты: `director.test.ts` (роли/раскладки/интенсивность по секциям, кроссфейд, детерминизм и различие по сиду, repeatGroup, переходы, проводка в `SceneRenderer`), `perspective.test.ts`, `layers/fulltext.test.ts`. 169 тестов, eslint и tsc по своим папкам зелёные. GPU-детерминизм fullscreen с 3D на стенде — OK. Бенчмарк (машина была нагружена, пустая сцена в экспорте 40 мс вместо ~25): превью 1080×1920 — fullscreen 44 к/с, neon 26–35 к/с (с режиссёром и без — одинаково), `renderFrame` ≈ 1 мс CPU.
+Вехи 1–4 + показ текста. Тесты `layers/textReveal.test.ts`: что видно в момент t для каждого режима, exit line-end/next-line, slide-up/pop, однословные строки во всех режимах, детерминизм команд во всех режимах × анимациях (lyrics и kinetic), масштаб ×0.5, ×2.5 в 9:16/16:9/1:1 — боксы внутри safe-area, перенос в несколько строк. 189 тестов, eslint, tsc зелёные. Стенд: neon word/blur ×1.5 и studio typewriter ×2.5 — ок, детерминизм GPU/CPU на стенде — OK.
 
 ## Ловушки
 
-- Детерминизм: кадр = f(timeline, scene, size, fps, N); случайность только через сид. Text-слои раскладывают все строки во всех режимах заранее (режиссёр может сменить режим) — иначе первый кадр шлёт лишние команды.
-- Переходы: если в сцене есть эффект `section-transitions`, переходы рисуют эффекты, режиссёр только меняет сцены.
-- Перспектива — проход по всему кадру: оверлеи эффектов тоже наклоняются (визуально согласованно), но `WordBox` описывают кадр до наклона.
-- `fillStyle: 'video'` копирует холст (`drawImage(g.canvas)`); без OffscreenCanvas (тесты в node) — обычная заливка.
-- HTMLCanvas и OffscreenCanvas дают разные хэши на пресетах с `lighter` (neon, fullscreen) — так было и до вехи 4; внутри одного типа кадры совпадают. Хэши сравнивать на одном типе канваса.
-- Прежние: прогревочный кадр в `init`; GPU/CPU-растеризация различаются; GL→2D через `copy`/`readPixels`; `init` ждёт шрифты слоёв и эффектов.
+- Детерминизм: кадр = f(timeline, scene, size, fps, N). Text-слои раскладывают все строки заранее (lyrics в word-solo — ещё и каждое слово). Kinetic в typewriter меряет текст в кадре (`measureText`, команд не шлёт).
+- `blur` — `ctx.filter`; где фильтры не поддерживаются, остаётся только проявление.
+- `symmetry.test.ts` проверяет lyrics в режиме `line` (в word-режимах строка рисуется частично намеренно).
+- При показе следующей строки предыдущая уходит анимацией выхода поверх входа новой (на одном месте); при `anim: none` — мгновенная смена.
+- Переходы: с эффектом `section-transitions` переходы рисуют эффекты. Перспектива: `WordBox` — кадр до наклона. `fillStyle: 'video'` копирует холст. HTMLCanvas и OffscreenCanvas дают разные хэши с `lighter` — сравнивать на одном типе.
 
 ## Что осталось
 
-1. Эффектам (хуки готовы): `camera-orbit` может писать `camera.tiltY` (3D при `director.camera3d`, иначе 2D-сжатие); секционные эффекты могут читать `f.shot` (роль, `enter`, `intensity`). Нужен эффект-стиль «edit» для fullscreen (сейчас `minimal`).
-2. Фронту: «перемешать» = новый `scene.seed`; ручки режиссёра (энергия/хаос/случайность) пока только в fullscreen.
-3. Камера по слову (zoom в слово) — по-прежнему нужен проход раскладки до камеры. Хвосты: прямой импорт `@/effects` вместо `effectsModule as {...}`, Butterchurn — опционально.
+1. Фронту: показать `textMode`/`textAnim`/`textScale`/`lineExit` (уже в `params` пресетов и `LAYER_SCHEMAS`); после `splitLine` из лирики короткие строки работают во всех режимах.
+2. Эффектам: `camera-orbit` → `camera.tiltY`; секционные эффекты могут читать `f.shot`; эффект-стиль «edit» для fullscreen.
+3. Камера по слову (нужен проход раскладки до камеры); прямой импорт `@/effects`; Butterchurn — опционально.

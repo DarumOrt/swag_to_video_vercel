@@ -103,6 +103,34 @@
       /></label>
       <button id="shuffle" title="Новый сид — другой «монтаж»">🎲 Перемешать</button>
       <label><input id="storyToggle" type="checkbox" checked /> сюжетные секции</label>
+      <label
+        >Текст
+        <select id="textMode" title="Показ текста (не всё доступно в каждом пресете)">
+          <option value="">как в пресете</option>
+          <option value="karaoke">караоке</option>
+          <option value="word">по словам</option>
+          <option value="word-solo">одно слово</option>
+          <option value="line">строкой</option>
+          <option value="typewriter">печатная машинка</option>
+          <option value="pop">выскакивают</option>
+        </select></label
+      >
+      <label
+        >Анимация
+        <select id="textAnim">
+          <option value="">как в пресете</option>
+          <option value="fade">проявление</option>
+          <option value="slide-up">снизу вверх</option>
+          <option value="scale">масштаб</option>
+          <option value="blur">из размытия</option>
+          <option value="none">без анимации</option>
+        </select></label
+      >
+      <label
+        >Масштаб
+        <input id="textScale" type="range" min="0.5" max="2.5" step="0.05" value="1" />
+        <span id="textScaleOut">×1</span></label
+      >
       <label><input id="safeToggle" type="checkbox" /> безопасная зона</label>
       <label><input id="styleFxToggle" type="checkbox" checked /> эффекты стиля</label>
       <label><input id="fxToggle" type="checkbox" /> демо-эффекты</label>

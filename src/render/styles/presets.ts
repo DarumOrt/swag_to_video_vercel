@@ -11,15 +11,21 @@
 import { FONT_FAMILY, fontStack } from '../fonts'
 import type { DirectorInput } from '../director'
 import type { LayerSpecInput, SceneInput } from '../scene'
+import type { LineExit, TextAnim, TextReveal } from '../layers/textReveal'
+import type { KineticReveal } from '../layers/kinetic'
 import {
+  ANIM_OPTIONS,
   bool,
   choice,
   color,
   defaultParams,
+  EXIT_OPTIONS,
   FONT_OPTIONS,
+  KINETIC_REVEAL_OPTIONS,
   GROUP,
   num,
   resolveParams,
+  REVEAL_OPTIONS,
   text,
   type LocalizedText,
   type ParamSpec,
@@ -57,6 +63,41 @@ function withAlpha(hex: string, alpha: number): string {
 
 const titleParam = text('title', 'Заголовок', 'Title', '', GROUP.text)
 
+/** How the lyrics show up: reveal mode, animation, text scale (and line exit for the lyrics layer). */
+function textParams(
+  reveals: [string, string, string][],
+  reveal: string,
+  anim: TextAnim,
+  withExit: boolean,
+): ParamSpec[] {
+  const out = [
+    choice('textMode', 'Показ текста', 'Text reveal', reveals, reveal, GROUP.text),
+    choice('textAnim', 'Анимация текста', 'Text animation', ANIM_OPTIONS, anim, GROUP.text),
+    num('textScale', 'Масштаб текста', 'Text scale', 0.5, 2.5, 0.05, 1, GROUP.text),
+  ]
+  if (withExit) {
+    out.push(
+      choice('lineExit', 'Строка уходит', 'Line leaves', EXIT_OPTIONS, 'line-end', GROUP.text),
+    )
+  }
+  return out
+}
+
+/** Lyrics layer fields from `textParams` values. */
+const lyricsText = (v: ParamValues) => ({
+  reveal: str(v.textMode, 'word') as TextReveal,
+  anim: str(v.textAnim, 'fade') as TextAnim,
+  scale: n(v.textScale, 1),
+  exit: str(v.lineExit, 'line-end') as LineExit,
+})
+
+/** Kinetic layer fields from `textParams` values. */
+const kineticText = (v: ParamValues) => ({
+  reveal: str(v.textMode, 'word') as KineticReveal,
+  anim: str(v.textAnim, 'fade') as TextAnim,
+  scale: n(v.textScale, 1),
+})
+
 // ---------------------------------------------------------------------------
 // Студия — strict meters, grid, monospace labels
 // ---------------------------------------------------------------------------
@@ -72,6 +113,7 @@ const studio: StylePreset = {
   params: [
     titleParam,
     choice('lyricsFont', 'Шрифт текста', 'Lyrics font', FONT_OPTIONS, 'grotesk', GROUP.text),
+    ...textParams(REVEAL_OPTIONS, 'typewriter', 'fade', true),
     color('accent', 'Акцент', 'Accent', '#7dd3fc', GROUP.visual),
     color('background', 'Фон', 'Background', '#0a0c10', GROUP.background),
     bool('spectrogram', 'Спектрограмма', 'Spectrogram', true, GROUP.meters),
@@ -140,6 +182,7 @@ const studio: StylePreset = {
       type: 'lyrics',
       rect: { x: 0, y: 0.47, w: 1, h: 0.14, space: 'center' },
       anchorY: 0.4,
+      ...lyricsText(v),
       fontFamily: fontOf(str(v.lyricsFont, 'grotesk')),
       fontWeight: 700,
       fontSize: 0.058,
@@ -216,6 +259,7 @@ const neon: StylePreset = {
   effectStyle: 'neon',
   params: [
     titleParam,
+    ...textParams(REVEAL_OPTIONS, 'word', 'blur', true),
     color('primary', 'Основной цвет', 'Primary color', '#22d3ee', GROUP.visual),
     color('secondary', 'Второй цвет', 'Secondary color', '#ff2bd6', GROUP.visual),
     color('tertiary', 'Цвет глубины', 'Depth color', '#7c3aed', GROUP.visual),
@@ -392,6 +436,7 @@ const neon: StylePreset = {
         id: 'lyrics',
         type: 'lyrics',
         rect: { x: 0, y: 0.25, w: 1, h: 0.26, space: 'center' },
+        ...lyricsText(v),
         fontFamily: display,
         fontWeight: 800,
         fontSize: 0.066,
@@ -492,6 +537,7 @@ const minimal: StylePreset = {
       GROUP.text,
     ),
     bool('directed', 'Раскладка по секциям', 'Layout by section', true, GROUP.text),
+    ...textParams(KINETIC_REVEAL_OPTIONS, 'word', 'slide-up', false),
     choice('font', 'Шрифт', 'Font', FONT_OPTIONS, 'grotesk', GROUP.text),
     color('textColor', 'Цвет текста', 'Text color', '#111111', GROUP.text),
     num('contrast', 'Контраст веса', 'Weight contrast', 0, 1, 0.05, 0.75, GROUP.text),
@@ -553,6 +599,7 @@ const minimal: StylePreset = {
         type: 'kinetic',
         rect: { x: 0, y: 0.1, w: 1, h: 0.6, space: 'center' },
         mode: layout,
+        ...kineticText(v),
         fontFamily: fontOf(fontKey),
         fontSize: layout === 'focus' ? 0.2 : layout === 'stack' ? 0.13 : 0.11,
         weightMax: maxW,
@@ -605,6 +652,7 @@ const grunge: StylePreset = {
   params: [
     titleParam,
     choice('font', 'Шрифт', 'Font', FONT_OPTIONS, 'condensed', GROUP.text),
+    ...textParams(KINETIC_REVEAL_OPTIONS, 'pop', 'scale', false),
     color('accent', 'Акцент', 'Accent', '#ef4444', GROUP.visual),
     color('background', 'Фон', 'Background', '#0c0a09', GROUP.background),
     num('aggression', 'Агрессия', 'Aggression', 0, 1, 0.05, 0.7, GROUP.motion),
@@ -663,6 +711,7 @@ const grunge: StylePreset = {
         type: 'kinetic',
         rect: { x: 0, y: 0.1, w: 1, h: 0.55, space: 'center' },
         mode: 'stack',
+        ...kineticText(v),
         fontFamily: font,
         uppercase: true,
         weightMin: 500,
@@ -738,6 +787,18 @@ const fullscreen: StylePreset = {
       GROUP.text,
     ),
     choice('font', 'Шрифт', 'Font', FONT_OPTIONS, 'condensed', GROUP.text),
+    choice(
+      'textMode',
+      'Показ текста',
+      'Text reveal',
+      [
+        ['word', 'Слова появляются', 'Words appear'],
+        ['karaoke', 'Караоке: следующие слова видны', 'Karaoke: upcoming words visible'],
+      ],
+      'word',
+      GROUP.text,
+    ),
+    num('textScale', 'Масштаб текста', 'Text scale', 0.5, 2.5, 0.05, 1, GROUP.text),
     num('echoes', 'Эхо-контуры', 'Echo outlines', 0, 6, 1, 2, GROUP.text),
     color('primary', 'Основной цвет', 'Primary color', '#ff3b5c', GROUP.visual),
     color('secondary', 'Второй цвет', 'Secondary color', '#ffd23f', GROUP.visual),
@@ -765,6 +826,8 @@ const fullscreen: StylePreset = {
     const visual = str(v.visual, 'both')
     const letters = str(v.letters, 'video') as 'video' | 'solid' | 'outline'
     const fontKey = str(v.font, 'condensed')
+    // Full-screen text is sized by the frame: the scale stretches its fill (> 1 crops at the edges).
+    const textScale = n(v.textScale, 1)
     const layers: LayerSpecInput[] = [
       {
         id: 'bg',
@@ -827,6 +890,9 @@ const fullscreen: StylePreset = {
         fontFamily: fontOf(fontKey),
         fontWeight: fontKey === 'condensed' ? 700 : 900,
         fillStyle: letters,
+        futureOpacity: str(v.textMode, 'word') === 'karaoke' ? 0.2 : 0,
+        fill: Math.min(Math.max(0.92 * textScale, 0.4), 1.6),
+        maxHeight: Math.min(0.5 * textScale, 1),
         color: '#ffffff',
         activeColor: letters === 'video' ? q : p,
         strokeColor: '#ffffff',

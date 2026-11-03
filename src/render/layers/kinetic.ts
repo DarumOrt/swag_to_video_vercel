@@ -1,5 +1,5 @@
 /**
- * Kinetic typography for lyrics: words pop in as they are sung, size and weight follow loudness,
+ * Kinetic typography for lyrics: words appear as they are sung (reveal + anim, textReveal.ts), size and weight follow loudness,
  * three layouts (flow / stack / focus), optional grunge jitter and torn letters on beats.
  * Line timing is shared with the karaoke layer (lyricsTiming.ts). Pure function of the frame.
  */
@@ -8,6 +8,7 @@ import { FONT_FAMILY, fontStack } from '../fonts'
 import type { RectSpec } from '../layout'
 import { createRng, hash32 } from '../random'
 import type { Ctx2D, FrameContext, Layer, LayerSpecBase } from '../types'
+import { clampTextScale } from './lyrics'
 import {
   computeLineTimings,
   ease,
@@ -16,8 +17,11 @@ import {
   type TimedWord,
 } from './lyricsTiming'
 import { wrapText } from './text'
+import { animState, popState, STILL, typedChars, type AnimState, type TextAnim } from './textReveal'
 
 export type KineticMode = 'flow' | 'stack' | 'focus'
+/** Appearing modes of kinetic words (the current word alone is the `focus` layout). */
+export type KineticReveal = 'word' | 'line' | 'typewriter' | 'pop'
 const KINETIC_MODES: readonly KineticMode[] = ['flow', 'stack', 'focus']
 
 export interface KineticSpec extends LayerSpecBase {
@@ -28,6 +32,12 @@ export interface KineticSpec extends LayerSpecBase {
    * The director's shot layout wins when it is one of these.
    */
   mode: KineticMode
+  /** word = each word at its timing; line = the whole line at once; typewriter = letters; pop = overshoot. */
+  reveal: KineticReveal
+  /** Enter / exit animation (on top of the `appearScale` pop-in). */
+  anim: TextAnim
+  /** Text size multiplier (0.5..2.5); the block still shrinks to fit the rect. */
+  scale: number
   fontFamily: string
   /** Variable-font weight range; loud words get heavier. */
   weightMin: number
@@ -62,6 +72,9 @@ export interface KineticSpec extends LayerSpecBase {
 export const KINETIC_DEFAULTS: Omit<KineticSpec, 'id' | 'type'> = {
   rect: { x: 0, y: 0.15, w: 1, h: 0.5, space: 'center' },
   mode: 'flow',
+  reveal: 'word',
+  anim: 'fade',
+  scale: 1,
   fontFamily: fontStack(FONT_FAMILY.grotesk),
   weightMin: 300,
   weightMax: 900,
@@ -123,7 +136,7 @@ export class KineticLayer implements Layer {
       this.layouts.clear()
     }
     const r = f.rect(s.rect)
-    const basePx = s.fontSize * f.layout.unit
+    const basePx = s.fontSize * f.layout.unit * clampTextScale(s.scale)
     const key = `${r.w}|${r.h}|${basePx}`
     if (key !== this.layoutKey) {
       this.layoutKey = key
@@ -145,43 +158,57 @@ export class KineticLayer implements Layer {
       const state = lineStateAt(line, t, s.transitionSec)
       // Only the current line and the one leaving; no preview of the next line.
       if (!state || state.slot > 0.999 || t < line.appear) continue
+      if (s.anim === 'none' && state.slot <= -1 + 1e-3) continue
       const lay = this.layout(g, line, mode, r.w, r.h, basePx, f)
-      const lineAlpha = state.slot < 0 ? 1 + state.slot : 1
-      const lift = state.slot < 0 ? state.slot * basePx * 0.6 : 0
-      if (mode === 'focus') this.drawFocus(g, f, lay, r, lineAlpha)
-      else this.drawWords(g, f, lay, r, lineAlpha, lift)
+      // Leaving: the exit animation runs over the slot change (0 → -1).
+      const exit = state.slot < 0 ? animState(s.anim, 1 + state.slot, true) : STILL
+      if (mode === 'focus') this.drawFocus(g, f, lay, r, exit)
+      else this.drawWords(g, f, line, lay, r, exit)
     }
+  }
+
+  /** Enter animation `since` seconds after a word (or line) showed up; includes the pop-in scale. */
+  private enter(since: number): AnimState {
+    const s = this.spec
+    const dur = Math.max(s.appearSec, 1e-3)
+    if (s.reveal === 'pop') return popState(since, Math.max(dur, 0.22))
+    const st = animState(s.anim, s.anim === 'none' ? 1 : since / dur)
+    const a = ease(since / dur)
+    return { ...st, scale: st.scale * (s.appearScale + (1 - s.appearScale) * a) }
   }
 
   private drawWords(
     g: Ctx2D,
     f: FrameContext,
+    line: LineTiming,
     lay: KineticLayout,
     r: { x: number; y: number },
-    lineAlpha: number,
-    lift: number,
+    exit: AnimState,
   ) {
     const s = this.spec
     const t = f.time
     for (const pw of lay.words) {
-      const since = t - pw.word.start
-      const sung = since >= 0
-      const appear = sung ? ease(since / Math.max(s.appearSec, 1e-3)) : 0
-      const alpha = (sung ? appear : s.futureOpacity) * lineAlpha
+      const sung = t >= pw.word.start
+      const shownAt = s.reveal === 'line' ? line.appear : pw.word.start
+      const en = t >= shownAt ? this.enter(t - shownAt) : null
+      const typed =
+        s.reveal === 'typewriter' ? typedChars(pw.word, pw.text.length, t) : pw.text.length
+      const alpha = (en && typed > 0 ? en.alpha : s.futureOpacity) * exit.alpha
       if (alpha <= 0.002) continue
       const active = sung && t < pw.word.end
-      const pop = sung ? s.appearScale + (1 - s.appearScale) * appear : 1
       const loudScale = 1 + s.sizeReact * pw.loud
       const punch = active ? 1 + s.beatPunch * Math.exp(-f.beat.since / 0.12) * f.beat.strength : 1
       const weight = sung ? s.weightMin + (s.weightMax - s.weightMin) * pw.loud : s.weightMin
       this.drawWord(g, f, pw, {
         x: r.x + pw.x,
-        y: r.y + pw.y + lift,
-        scale: pop * loudScale * punch,
+        y: r.y + pw.y + ((en?.dy ?? 0) + exit.dy) * lay.fontPx,
+        scale: (en?.scale ?? 1) * exit.scale * loudScale * punch,
         alpha,
         weight,
         px: lay.fontPx,
         color: active ? s.activeColor : s.color,
+        blur: ((en?.blur ?? 0) + exit.blur) * lay.fontPx,
+        typed: en && typed > 0 ? typed : pw.text.length,
       })
     }
   }
@@ -191,7 +218,7 @@ export class KineticLayer implements Layer {
     f: FrameContext,
     lay: KineticLayout,
     r: { x: number; y: number },
-    lineAlpha: number,
+    exit: AnimState,
   ) {
     const s = this.spec
     const t = f.time
@@ -204,27 +231,36 @@ export class KineticLayer implements Layer {
     const pw = lay.words[current]
     if (!pw) return
     const since = t - pw.word.start
+    const en = this.enter(since)
     const appear = ease(since / Math.max(s.appearSec, 1e-3))
     const punch = 1 + s.beatPunch * Math.exp(-f.beat.since / 0.12) * f.beat.strength
-    this.drawWord(g, f, pw, {
-      x: r.x + pw.x,
-      y: r.y + pw.y,
-      scale: (s.appearScale + (1 - s.appearScale) * appear) * (1 + s.sizeReact * pw.loud) * punch,
-      alpha: appear * lineAlpha,
-      weight: s.weightMin + (s.weightMax - s.weightMin) * pw.loud,
-      px: lay.fontPx,
-      color: t < pw.word.end ? s.activeColor : s.color,
-    })
+    const typed =
+      s.reveal === 'typewriter' ? typedChars(pw.word, pw.text.length, t) : pw.text.length
+    if (typed > 0) {
+      this.drawWord(g, f, pw, {
+        x: r.x + pw.x,
+        y: r.y + pw.y + (en.dy + exit.dy) * lay.fontPx,
+        scale: en.scale * exit.scale * (1 + s.sizeReact * pw.loud) * punch,
+        alpha: en.alpha * exit.alpha,
+        weight: s.weightMin + (s.weightMax - s.weightMin) * pw.loud,
+        px: lay.fontPx,
+        color: t < pw.word.end ? s.activeColor : s.color,
+        blur: (en.blur + exit.blur) * lay.fontPx,
+        typed,
+      })
+    }
     const prev = lay.words[current - 1]
     if (prev) {
       this.drawWord(g, f, prev, {
         x: r.x + pw.x,
         y: r.y + pw.y - lay.fontPx * 1.1,
         scale: 0.42,
-        alpha: 0.5 * lineAlpha * (1 - appear * 0.5),
+        alpha: 0.5 * exit.alpha * (1 - appear * 0.5),
         weight: s.weightMin,
         px: lay.fontPx,
         color: s.color,
+        blur: 0,
+        typed: prev.text.length,
       })
     }
   }
@@ -241,6 +277,10 @@ export class KineticLayer implements Layer {
       weight: number
       px: number
       color: string
+      /** Blur radius, px (0 = none). */
+      blur: number
+      /** Characters shown (typewriter; fractional = the next one fading in). */
+      typed: number
     },
   ) {
     const s = this.spec
@@ -271,6 +311,23 @@ export class KineticLayer implements Layer {
     g.scale(o.scale, o.scale)
     g.font = `${Math.round(o.weight)} ${o.px}px ${s.fontFamily}`
     g.fillStyle = o.color
+    if (o.blur > 0.05) g.filter = `blur(${o.blur.toFixed(2)}px)`
+
+    if (o.typed < pw.text.length) {
+      // Typewriter: the visible prefix at its place in the whole word (left edge fixed).
+      const full = Math.floor(o.typed)
+      const left = -g.measureText(pw.text).width / 2
+      const head = pw.text.slice(0, full)
+      g.textAlign = 'left'
+      if (full > 0) g.fillText(head, left, 0)
+      const frac = o.typed - full
+      if (frac > 0.01) {
+        g.globalAlpha *= frac
+        g.fillText(pw.text.charAt(full), left + g.measureText(head).width, 0)
+      }
+      g.restore()
+      return
+    }
 
     const tear = s.tear * Math.exp(-f.beat.since / 0.15) * f.beat.strength
     if (tear > 0.01) {

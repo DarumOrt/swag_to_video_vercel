@@ -3,7 +3,7 @@
  * format / fps switch, fps counter, determinism checks (main thread and OffscreenCanvas worker).
  * Wall-clock time is used only here, to pick which frame to show — never inside the renderer.
  * URL params preset the controls: ?preset=neon&format=1080x1920&fps=30&fx=style|demo|none&frame=N
- * (frame = paused on that frame)&safe=1&seed=N&story=0|1. The line under the stats shows the
+ * (frame = paused on that frame)&safe=1&seed=N&story=0|1&text=word&anim=blur&scale=1.5. The line under the stats shows the
  * director's shot (section role, layout, intensity) of the current frame.
  */
 
@@ -26,6 +26,10 @@ const styleFxToggle = $<HTMLInputElement>('styleFxToggle')
 const presetSel = $<HTMLSelectElement>('preset')
 const seedInput = $<HTMLInputElement>('seed')
 const storyToggle = $<HTMLInputElement>('storyToggle')
+const textModeSel = $<HTMLSelectElement>('textMode')
+const textAnimSel = $<HTMLSelectElement>('textAnim')
+const textScaleInput = $<HTMLInputElement>('textScale')
+const textScaleOut = $<HTMLSpanElement>('textScaleOut')
 const shotEl = $<HTMLParagraphElement>('shot')
 const safeBox = $<HTMLDivElement>('safe')
 const playBtn = $<HTMLButtonElement>('play')
@@ -42,6 +46,9 @@ const sceneOptions = (): DevSceneOptions => ({
   styleEffects: styleFxToggle.checked,
   seed: seedInput.value === '' ? undefined : Math.max(0, Math.floor(Number(seedInput.value))),
   story: storyToggle.checked,
+  textMode: textModeSel.value,
+  textAnim: textAnimSel.value,
+  textScale: Number(textScaleInput.value),
 })
 /** A twin of the renderer's director, only to show the shot of the current frame. */
 let shotDirector: Director | null = null
@@ -71,6 +78,10 @@ if (query.has('fx')) {
 safeToggle.checked = query.get('safe') === '1'
 if (query.has('seed')) seedInput.value = query.get('seed') ?? ''
 if (query.has('story')) storyToggle.checked = query.get('story') !== '0'
+pick(textModeSel, query.get('text'))
+pick(textAnimSel, query.get('anim'))
+if (query.has('scale')) textScaleInput.value = query.get('scale') ?? '1'
+textScaleOut.textContent = `×${textScaleInput.value}`
 
 // Stats over the last second.
 let statWindowStart = performance.now()
@@ -219,7 +230,11 @@ formatSel.onchange =
   presetSel.onchange =
   seedInput.onchange =
   storyToggle.onchange =
+  textModeSel.onchange =
+  textAnimSel.onchange =
+  textScaleInput.onchange =
     () => void setup()
+textScaleInput.oninput = () => (textScaleOut.textContent = `×${textScaleInput.value}`)
 $<HTMLButtonElement>('shuffle').onclick = () => {
   // Wall clock only picks a new seed for the page; the renderer itself stays deterministic.
   seedInput.value = String(Math.floor(Math.random() * 1e6))

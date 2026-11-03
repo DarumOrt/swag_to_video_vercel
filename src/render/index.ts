@@ -17,7 +17,20 @@ export {
 } from './scene'
 export type { BackgroundFill, BackgroundSpec, ColorStop } from './layers/background'
 export { DEFAULT_FONT_FAMILY, type TextSpec } from './layers/text'
-export { LYRICS_DEFAULTS, type LyricsSpec } from './layers/lyrics'
+export {
+  clampTextScale,
+  LYRICS_DEFAULTS,
+  TEXT_SCALE_MAX,
+  TEXT_SCALE_MIN,
+  type LyricsSpec,
+} from './layers/lyrics'
+export {
+  TEXT_ANIMS,
+  TEXT_REVEALS,
+  type LineExit,
+  type TextAnim,
+  type TextReveal,
+} from './layers/textReveal'
 export { EMBEDDED_FONTS, FONT_FAMILY, fontStack, loadEmbeddedFonts } from './fonts'
 export {
   computeLayout,
@@ -54,7 +67,7 @@ export {
 export { beatAt, sectionAt, type BeatInfo } from './rhythm'
 
 // Layers added in milestone 3
-export { KINETIC_DEFAULTS, type KineticSpec } from './layers/kinetic'
+export { KINETIC_DEFAULTS, type KineticReveal, type KineticSpec } from './layers/kinetic'
 export { NOISE_DEFAULTS, type NoiseSpec } from './layers/noise'
 
 // Style presets and parameter schemas (auto UI)

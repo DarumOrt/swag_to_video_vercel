@@ -156,3 +156,36 @@ export const FONT_OPTIONS: [string, string, string][] = [
   ['condensed', 'Oswald (узкий)', 'Oswald (condensed)'],
   ['mono', 'JetBrains Mono (моно)', 'JetBrains Mono (mono)'],
 ]
+
+/** Text reveal modes of the lyrics layer (values = TextReveal). */
+export const REVEAL_OPTIONS: [string, string, string][] = [
+  ['karaoke', 'Караоке (подсветка)', 'Karaoke (highlight)'],
+  ['word', 'По словам', 'Word by word'],
+  ['word-solo', 'Одно слово', 'Single word'],
+  ['line', 'Строкой', 'Whole line'],
+  ['typewriter', 'Печатная машинка', 'Typewriter'],
+  ['pop', 'Выскакивают', 'Pop'],
+]
+
+/** Kinetic layer reveal modes (one word alone = the `focus` layout). */
+export const KINETIC_REVEAL_OPTIONS: [string, string, string][] = [
+  ['word', 'По словам', 'Word by word'],
+  ['line', 'Строкой', 'Whole line'],
+  ['typewriter', 'Печатная машинка', 'Typewriter'],
+  ['pop', 'Выскакивают', 'Pop'],
+]
+
+/** Enter / exit animations (values = TextAnim). */
+export const ANIM_OPTIONS: [string, string, string][] = [
+  ['fade', 'Проявление', 'Fade'],
+  ['slide-up', 'Снизу вверх', 'Slide up'],
+  ['scale', 'Масштаб', 'Scale'],
+  ['blur', 'Из размытия', 'Blur'],
+  ['none', 'Без анимации', 'None'],
+]
+
+/** When a line leaves (values = LineExit). */
+export const EXIT_OPTIONS: [string, string, string][] = [
+  ['line-end', 'После последнего слова', 'After its last word'],
+  ['next-line', 'Со следующей строкой', 'With the next line'],
+]
