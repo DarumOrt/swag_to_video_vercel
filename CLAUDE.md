@@ -20,7 +20,7 @@
   при этом загрузка с Hugging Face работает — проверено). Заданы в `vercel.json` и `vite.config.ts` — держать в синхроне.
 - Репозитории моделей на HF: `DarumOrt/whisper-small-timestamped-onnx` (Apache-2.0), `DarumOrt/htdemucs-onnx` (MIT),
   `DarumOrt/aligner-onnx` (CC BY-NC 4.0).
-- Репозиторий кода: https://github.com/DarumOrt/swag_to_video_vercel (приватный, `origin`, из него деплоит Vercel).
+- Репозиторий кода: https://github.com/DarumOrt/swag_to_video_vercel (публичный, `origin`, из него деплоит Vercel).
   Старый `DarumOrt/SwagToVideo` (remote `old`) больше не обновляется. Секреты — только в `.env` (gitignored).
 
 ## Команды

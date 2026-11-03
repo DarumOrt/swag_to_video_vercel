@@ -4,10 +4,10 @@ import { expect, test } from '@playwright/test'
  * Full-track export (heavy — rule 11: run only after the user confirms the machine is free):
  * worker + OPFS streaming, 1080×1920 @ 30 fps. Reports time, peak memory and duration match.
  * Run: EXPORT_FULL=1 E2E_BASE_URL=http://localhost:5179 npx playwright test e2e/export/export-full.spec.ts
- * Track: EXPORT_TRACK=/test-media/<file>.mp3 (default: "Another One", 2:38).
+ * Track: EXPORT_TRACK=/test-media/<file>.mp3 (default: /test-media/track.mp3).
  */
 
-const TRACK = process.env.EXPORT_TRACK ?? '/test-media/SpotiDown.App - Another One - Toby Mai.mp3'
+const TRACK = process.env.EXPORT_TRACK ?? '/test-media/track.mp3'
 
 test.skip(!process.env.EXPORT_FULL, 'heavy run: set EXPORT_FULL=1 after the user confirms')
 

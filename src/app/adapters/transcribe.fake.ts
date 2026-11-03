@@ -38,7 +38,7 @@ export async function transcribeFake(job: TranscribeJob): Promise<RecognizedWord
 
 async function fetchDevLyrics(trackName: string): Promise<string | null> {
   if (!import.meta.env.DEV) return null
-  const base = trackName.replace(/\.[^.]+$/, '').replace(/^SpotiDown\.App - /, '')
+  const base = trackName.replace(/\.[^.]+$/, '').replace(/^[\w.]+\.App - /, '') // downloader prefix
   try {
     const response = await fetch(`/test-media/${encodeURIComponent(base)}.txt`)
     if (!response.ok || !response.headers.get('content-type')?.includes('text')) return null
